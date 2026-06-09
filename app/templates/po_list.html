@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Purchase Orders{% endblock %}
+{% block page_title %}Purchase Orders{% endblock %}
+
+{% block topbar_actions %}
+  <a href="/pos/new" class="btn btn-primary btn-sm">
+    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 4v16M4 12h16"/></svg>
+    New PO
+  </a>
+{% endblock %}
+
+{% block content %}
+
+<!-- Filter tabs -->
+<div style="display:flex;gap:8px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0;">
+  {% set tabs = [('', 'All'), ('draft','Draft'), ('submitted','Submitted'), ('l1_approved','L1 Approved'), ('approved','Approved'), ('rejected','Rejected')] %}
+  {% for val, label in tabs %}
+  <a href="/pos{% if val %}?status={{ val }}{% endif %}"
+     style="padding:10px 16px;font-size:0.84rem;font-weight:600;text-decoration:none;border-bottom:2px solid {% if status_filter == val %}var(--blue){% else %}transparent{% endif %};color:{% if status_filter == val %}var(--blue){% else %}var(--text-muted){% endif %};transition:all 0.15s;"
+     onmouseover="this.style.color='var(--blue)'" onmouseout="this.style.color='{% if status_filter == val %}var(--blue){% else %}var(--text-muted){% endif %}'">
+    {{ label }}
+  </a>
+  {% endfor %}
+</div>
+
+<!-- Search bar -->
+<div class="flex gap-3 mb-4">
+  <input type="text" placeholder="Search by PO number, vendor, description…"
+         class="form-control" style="max-width:400px;"
+         hx-get="/pos/search" hx-trigger="keyup changed delay:400ms"
+         hx-target="#po-table-body" name="q">
+</div>
+
+<!-- PO table -->
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>PO Number</th>
+          <th>Requester</th>
+          <th>Vendor</th>
+          <th>Category</th>
+          <th>Amount (₹)</th>
+          <th>Status</th>
+          <th>Required By</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="po-table-body">
+        {% for po in pos %}
+        <tr>
+          <td><a href="/pos/{{ po.id }}" class="td-mono">{{ po.po_number }}</a></td>
+          <td>{{ po.requester_name }}</td>
+          <td style="font-weight:500;">{{ po.vendor_name }}</td>
+          <td><span style="font-size:0.8rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px 8px;">{{ po.po_category.replace('_',' ').title() }}</span></td>
+          <td class="font-bold">{{ "{:,.0f}".format(po.total_amount) }}</td>
+          <td><span class="badge badge-{{ po.status }}">{{ po.status.replace('_',' ').title() }}</span></td>
+          <td class="td-muted">{{ po.required_by.strftime('%d %b %Y') }}</td>
+          <td>
+            <a href="/pos/{{ po.id }}" class="btn btn-secondary btn-sm">View</a>
+            {% if po.status == 'draft' and po.requester_id == current_user.id %}
+            <a href="/pos/{{ po.id }}/edit" class="btn btn-secondary btn-sm">Edit</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8">
+          <div class="empty-state">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+            <p>No purchase orders found.</p>
+          </div>
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

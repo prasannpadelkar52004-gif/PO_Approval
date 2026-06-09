@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+{% block title %}Analytics{% endblock %}
+{% block page_title %}Analytics & Reports{% endblock %}
+
+{% block content %}
+
+<!-- Summary Stats -->
+<div class="stat-grid" style="margin-bottom:24px;">
+  <div class="stat-card" style="--accent:var(--blue)">
+    <div class="stat-label">Total POs</div>
+    <div class="stat-value">{{ stats.total }}</div>
+    <div class="stat-sub">All time</div>
+  </div>
+  <div class="stat-card" style="--accent:var(--green)">
+    <div class="stat-label">Approved</div>
+    <div class="stat-value" style="color:var(--green);">{{ stats.approved }}</div>
+    <div class="stat-sub">₹{{ "{:,.0f}".format(stats.approved_value) }}</div>
+  </div>
+  <div class="stat-card" style="--accent:var(--amber)">
+    <div class="stat-label">In Progress</div>
+    <div class="stat-value" style="color:var(--amber);">{{ stats.in_progress }}</div>
+    <div class="stat-sub">Awaiting approval</div>
+  </div>
+  <div class="stat-card" style="--accent:var(--red)">
+    <div class="stat-label">Rejected</div>
+    <div class="stat-value" style="color:var(--red);">{{ stats.rejected }}</div>
+    <div class="stat-sub">This month: {{ stats.rejected_month }}</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+
+  <!-- PO Status Breakdown -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">PO Status Breakdown</span></div>
+    <div class="card-body">
+      {% for item in status_breakdown %}
+      <div style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="font-size:0.83rem;font-weight:500;text-transform:capitalize;">{{ item.status.replace('_',' ').title() }}</span>
+          <span style="font-size:0.83rem;font-weight:700;color:var(--blue);">{{ item.count }}</span>
+        </div>
+        <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden;">
+          <div style="height:100%;border-radius:4px;width:{{ item.pct }}%;background:
+            {% if item.status == 'approved' %}var(--green)
+            {% elif item.status == 'rejected' %}var(--red)
+            {% elif item.status == 'draft' %}var(--slate)
+            {% elif item.status == 'submitted' %}var(--blue)
+            {% elif 'approved' in item.status %}var(--teal)
+            {% else %}var(--amber){% endif %};"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Spending by Category -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">Spending by Category</span></div>
+    <div class="card-body" style="padding:0;">
+      <table>
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th style="text-align:right;">POs</th>
+            <th style="text-align:right;">Total (₹)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for cat in category_spending %}
+          <tr>
+            <td style="font-weight:500;">{{ cat.category.replace('_',' ').title() }}</td>
+            <td style="text-align:right;" class="td-muted">{{ cat.count }}</td>
+            <td style="text-align:right;" class="font-mono" style="color:var(--blue);">₹{{ "{:,.0f}".format(cat.total) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+
+  <!-- Monthly Trend -->
+  <div class="card">
+    <div class="card-header"><span class="card-title">Monthly PO Trend (Last 6 Months)</span></div>
+    <div class="card-body">
+      {% for month in monthly_trend %}
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="font-size:0.83rem;font-weight:500;">{{ month.label }}</span>
+          <span style="font-size:0.83rem;color:var(--text-muted);">{{ month.count }} POs · ₹{{ "{:,.0f}".format(month.value) }}</span>
+        </div>
+        <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden;">
+          <div style="height:100%;border-radius:4px;width:{{ month.pct }}%;background:var(--blue);"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Spending by Site — Admin/MD Only -->
+  {% if current_user.role == 'admin' or current_user.role == 'md_owner' %}
+  <div class="card">
+    <div class="card-header"><span class="card-title">Spending by Site</span></div>
+    <div class="card-body" style="padding:0;">
+      <table>
+        <thead>
+          <tr>
+            <th>Site</th>
+            <th style="text-align:right;">POs</th>
+            <th style="text-align:right;">Total (₹)</th>
+            <th style="text-align:right;">Approved (₹)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for site in site_spending %}
+          <tr>
+            <td>
+              <span style="font-family:'DM Mono',monospace;font-size:0.78rem;font-weight:700;color:var(--blue);">{{ site.code }}</span>
+              <div style="font-size:0.75rem;color:var(--text-muted);">{{ site.name }}</div>
+            </td>
+            <td style="text-align:right;" class="td-muted">{{ site.count }}</td>
+            <td style="text-align:right;" class="font-mono">₹{{ "{:,.0f}".format(site.total) }}</td>
+            <td style="text-align:right;" class="font-mono" style="color:var(--green);">₹{{ "{:,.0f}".format(site.approved) }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" style="text-align:center;padding:20px;color:var(--text-muted);">No data yet</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- Recent Approved POs -->
+
+<!-- Recent Approved POs -->
+<div class="card">
+  <div class="card-header"><span class="card-title">Recently Approved POs</span></div>
+  <div class="card-body" style="padding:0;">
+    <table>
+      <thead>
+        <tr>
+          <th>PO Number</th><th>Vendor</th><th>Category</th><th>Requester</th><th style="text-align:right;">Amount (₹)</th><th>Approved On</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for po in recent_approved %}
+        <tr>
+          <td><a href="/pos/{{ po.id }}" class="td-mono">{{ po.po_number }}</a></td>
+          <td style="font-weight:500;">{{ po.vendor_name }}</td>
+          <td class="td-muted">{{ po.po_category.replace('_',' ').title() }}</td>
+          <td class="td-muted">{{ po.requester_name }}</td>
+          <td style="text-align:right;" class="font-mono">₹{{ "{:,.0f}".format(po.total_amount) }}</td>
+          <td class="td-muted">{{ po.approved_at.strftime('%d %b %Y') if po.approved_at else '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted);">No approved POs yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

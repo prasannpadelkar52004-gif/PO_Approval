@@ -1,0 +1,413 @@
+{% extends "base.html" %}
+{% block title %}{{ po.po_number }}{% endblock %}
+{% block page_title %}
+  <div class="flex items-center gap-3">
+    <a href="/pos" style="color:var(--text-muted);font-size:0.85rem;text-decoration:none;">← POs</a>
+    <span style="color:var(--border-dark);">/</span>
+    <span class="font-mono" style="font-size:0.95rem;font-weight:600;color:var(--blue);">{{ po.po_number }}</span>
+    <span class="badge badge-{{ po.status }}">{{ po.status.replace('_',' ').title() }}</span>
+    {% if po.priority == 'urgent' %}
+    <span class="badge badge-urgent">⚡ Urgent</span>
+    {% endif %}
+  </div>
+{% endblock %}
+
+{% block topbar_actions %}
+  {% if po.status == 'draft' and po.requester_id == current_user.id %}
+    <button class="btn btn-secondary btn-sm" onclick="window.location='/pos/{{ po.id }}/edit'">Edit</button>
+    <form method="POST" action="/pos/{{ po.id }}/submit" style="display:inline;">
+      <button type="submit" class="btn btn-primary btn-sm">Submit for Approval →</button>
+    </form>
+  {% endif %}
+  {% if po.status == 'approved' and current_user.role == 'finance' %}
+    <form method="POST" action="/pos/{{ po.id }}/close" style="display:inline;">
+      <button type="submit" class="btn btn-success btn-sm">Mark as Closed</button>
+    </form>
+  {% endif %}
+  <a href="/pos/{{ po.id }}/pdf" class="btn btn-secondary btn-sm" target="_blank">
+    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+    Download PDF
+  </a>
+{% endblock %}
+
+{% block content %}
+<div style="display:grid;grid-template-columns:1fr 380px;gap:20px;">
+
+  <!-- ── Left column ──────────────────────────────────────────── -->
+  <div style="display:flex;flex-direction:column;gap:20px;">
+
+    <!-- PO header info -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">PO Details</span>
+      </div>
+      <div class="card-body">
+        <div class="form-grid">
+          <div>
+            <div class="text-xs text-muted" style="font-weight:600;text-transform:uppercase;letter-spacing:0.07em;">Vendor</div>
+            <div style="font-weight:600;margin-top:4px;">{{ po.vendor.name }}</div>
+            {% if po.vendor.gst_number %}<div class="text-xs text-muted font-mono">GST: {{ po.vendor.gst_number }}</div>{% endif %}
+          </div>
+          <div>
+            <div class="text-xs text-muted" style="font-weight:600;text-transform:uppercase;letter-spacing:0.07em;">Requester</div>
+            <div style="font-weight:600;margin-top:4px;">{{ po.requester.full_name }}</div>
+            <div class="text-xs text-muted">{{ po.requester.role.replace('_',' ').title() }}</div>
+          </div>
+          <div>
+            <div class="text-xs text-muted" style="font-weight:600;text-transform:uppercase;letter-spacing:0.07em;">Project / Site</div>
+            <div style="font-weight:600;margin-top:4px;">{{ po.project.name if po.project else '—' }}</div>
+            {% if po.project %}<div class="text-xs text-muted font-mono">{{ po.project.cost_centre }}</div>{% endif %}
+          </div>
+          <div>
+            <div class="text-xs text-muted" style="font-weight:600;text-transform:uppercase;letter-spacing:0.07em;">Department</div>
+            <div style="font-weight:600;margin-top:4px;">{{ po.department.name if po.department else '—' }}</div>
+          </div>
+          <div>
+            <div class="text-xs text-muted" style="font-weight:600;text-transform:uppercase;letter-spacing:0.07em;">Category</div>
+            <div style="font-weight:600;margin-top:4px;">{{ po.po_category.replace('_',' ').title() }}</div>
+          </div>
+          <div>
+            <div class="text-xs text-muted" style="font-weight:600;text-transform:uppercase;letter-spacing:0.07em;">Required By</div>
+            <div style="font-weight:600;margin-top:4px;">{{ po.required_by.strftime('%d %b %Y') }}</div>
+          </div>
+          <div>
+            <div class="text-xs text-muted" style="font-weight:600;text-transform:uppercase;letter-spacing:0.07em;">Payment Terms</div>
+            <div style="font-weight:600;margin-top:4px;">{{ po.payment_terms or '—' }}</div>
+          </div>
+          <div>
+            <div class="text-xs text-muted" style="font-weight:600;text-transform:uppercase;letter-spacing:0.07em;">Created</div>
+            <div style="font-weight:600;margin-top:4px;">{{ po.created_at.strftime('%d %b %Y, %H:%M') }}</div>
+          </div>
+        </div>
+        <hr class="divider">
+        <div>
+          <div class="text-xs text-muted" style="font-weight:600;text-transform:uppercase;letter-spacing:0.07em;">Purpose / Description</div>
+          <div style="margin-top:6px;font-size:0.9rem;color:var(--text-mid);">{{ po.description }}</div>
+        </div>
+        {% if po.delivery_address %}
+        <div class="mt-4">
+          <div class="text-xs text-muted" style="font-weight:600;text-transform:uppercase;letter-spacing:0.07em;">Delivery Address</div>
+          <div style="margin-top:6px;font-size:0.9rem;color:var(--text-mid);">{{ po.delivery_address }}</div>
+        </div>
+        {% endif %}
+        {% if po.rejection_reason %}
+        <div class="alert alert-danger mt-4">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <div><strong>Rejection reason:</strong> {{ po.rejection_reason }}</div>
+        </div>
+        {% endif %}
+        {% if po.return_reason %}
+        <div class="alert alert-warning mt-4">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <div><strong>Returned for clarification:</strong> {{ po.return_reason }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Line items -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Line Items</span>
+        <span class="text-sm text-muted">{{ po.line_items|length }} item{{ 's' if po.line_items|length != 1 }}</span>
+      </div>
+      <div class="table-wrap">
+        <table class="line-items-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Description</th>
+              <th>Unit</th>
+              <th style="text-align:right;">Qty</th>
+              <th style="text-align:right;">Rate (₹)</th>
+              <th style="text-align:right;">Amount (₹)</th>
+              <th style="text-align:right;">GST %</th>
+              <th style="text-align:right;">Total (₹)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in po.line_items %}
+            <tr>
+              <td class="text-muted text-sm">{{ loop.index }}</td>
+              <td style="font-weight:500;">{{ item.description }}</td>
+              <td class="text-muted text-sm">{{ item.unit_of_measure }}</td>
+              <td style="text-align:right;" class="font-mono text-sm">{{ item.quantity }}</td>
+              <td style="text-align:right;" class="font-mono text-sm">{{ "{:,.2f}".format(item.unit_rate) }}</td>
+              <td style="text-align:right;" class="font-mono text-sm">{{ "{:,.2f}".format(item.amount) }}</td>
+              <td style="text-align:right;" class="text-muted text-sm">{{ item.gst_percent }}%</td>
+              <td style="text-align:right;font-weight:600;" class="font-mono">{{ "{:,.2f}".format(item.total) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="5"></td>
+              <td style="text-align:right;font-size:0.8rem;color:var(--text-muted);padding-right:14px;">Subtotal</td>
+              <td></td>
+              <td style="text-align:right;" class="font-mono">₹{{ "{:,.2f}".format(po.subtotal) }}</td>
+            </tr>
+            <tr>
+              <td colspan="5"></td>
+              <td style="text-align:right;font-size:0.8rem;color:var(--text-muted);padding-right:14px;">GST</td>
+              <td></td>
+              <td style="text-align:right;" class="font-mono">₹{{ "{:,.2f}".format(po.gst_amount) }}</td>
+            </tr>
+            <tr style="background:#EFF6FF;">
+              <td colspan="5"></td>
+              <td style="text-align:right;font-size:0.82rem;font-weight:700;padding-right:14px;color:var(--blue);">TOTAL</td>
+              <td></td>
+              <td style="text-align:right;font-size:1.05rem;font-weight:800;color:var(--blue);" class="font-mono">₹{{ "{:,.2f}".format(po.total_amount) }}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <!-- Attachments -->
+    {% if po.attachments %}
+    <div class="card">
+      <div class="card-header"><span class="card-title">Attachments</span></div>
+      <div class="card-body" style="display:flex;flex-wrap:wrap;gap:10px;">
+        {% for att in po.attachments %}
+        <a href="/pos/{{ po.id }}/attachments/{{ att.id }}" target="_blank" download="{{ att.filename }}"
+           style="display:flex;align-items:center;gap:8px;padding:8px 14px;border:1px solid var(--border);border-radius:8px;font-size:0.84rem;text-decoration:none;color:var(--text-mid);">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+          {{ att.filename }}
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Audit trail -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">Activity Timeline</span></div>
+      <div class="card-body">
+        <div class="timeline">
+          {% for log in po.audit_logs|sort(attribute='created_at') %}
+          <div class="timeline-item">
+            <div class="timeline-dot {{ log.action }}"></div>
+            <div class="timeline-meta">
+              <span class="timeline-actor">{{ log.actor.full_name if log.actor else 'System' }}</span>
+              &nbsp;·&nbsp; {{ log.created_at.strftime('%d %b %Y, %H:%M') }}
+              {% if log.from_status and log.to_status %}
+              &nbsp;·&nbsp;
+              <span class="badge badge-{{ log.from_status }}" style="font-size:0.65rem;">{{ log.from_status.replace('_',' ') }}</span>
+              →
+              <span class="badge badge-{{ log.to_status }}" style="font-size:0.65rem;">{{ log.to_status.replace('_',' ') }}</span>
+              {% endif %}
+            </div>
+            <div class="timeline-body">
+              <strong>{{ log.action.replace('_',' ').title() }}</strong>
+              {% if log.comments %}
+              <div class="timeline-comment">{{ log.comments }}</div>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Right column — Approval panel ────────────────────────── -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+
+    <!-- Approval progress -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">Approval Progress</span></div>
+      <div class="card-body">
+        {% set level_labels = {1:'L1 — Site Manager', 2:'L2 — Project Manager', 3:'L3 — GM / Finance', 4:'L4 — Approver', 5:'L5 — Finance', 6:'L6 — MD / Owner'} %}
+        {% set status_order = ['draft','submitted','l1_approved','l2_approved','l3_approved','l4_approved','l5_approved','approved'] %}
+        {% set current_idx = status_order.index(po.status) if po.status in status_order else 0 %}
+
+        {% for level in range(1, po.required_levels + 1) %}
+        {% set step_status = 'l' ~ level ~ '_approved' %}
+        {% set done = current_idx > level %}
+        {% set active = current_idx == level %}
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;{% if not loop.last %}border-bottom:1px solid var(--border);{% endif %}">
+          <div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-size:0.82rem;font-weight:700;flex-shrink:0;
+            background:{% if done %}var(--green){% elif active %}var(--blue){% else %}var(--bg){% endif %};
+            color:{% if done or active %}#fff{% else %}var(--text-muted){% endif %};
+            border:2px solid {% if done %}var(--green){% elif active %}var(--blue){% else %}var(--border-dark){% endif %};">
+            {% if done %}
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+            {% else %}
+            {{ level }}
+            {% endif %}
+          </div>
+          <div>
+            <div style="font-size:0.84rem;font-weight:{% if done or active %}600{% else %}400{% endif %};color:{% if done %}var(--green){% elif active %}var(--blue){% else %}var(--text-muted){% endif %};">
+              {{ level_labels.get(level, 'Level ' ~ level) }}
+            </div>
+            {% if done %}
+            {% for step in po.approval_steps if step.level == level %}
+            <div class="text-xs text-muted">{{ step.approver.full_name }} · {{ step.acted_at.strftime('%d %b') }}</div>
+            {% endfor %}
+            {% elif active %}
+            <div class="text-xs" style="color:var(--blue);">Waiting for approval</div>
+            {% else %}
+            <div class="text-xs text-muted">Pending</div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+
+        {% if po.status == 'approved' %}
+        <div class="alert alert-success mt-4" style="margin-bottom:0;">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Fully approved on {{ po.approved_at.strftime('%d %b %Y') if po.approved_at else '' }}
+        </div>
+        {% elif po.status == 'rejected' %}
+        <div class="alert alert-danger mt-4" style="margin-bottom:0;">
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Rejected on {{ po.rejected_at.strftime('%d %b %Y') if po.rejected_at else '' }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Approver action panel (HTMX-powered) -->
+{% set can_approve = (
+  (po.status == 'submitted'   and current_user.role in ['l1_approver', 'L1_APPROVER']) or
+  (po.status == 'l1_approved' and current_user.role in ['l2_approver', 'L2_APPROVER']) or
+  (po.status == 'l2_approved' and current_user.role in ['l3_approver', 'L3_APPROVER']) or
+  (po.status == 'l3_approved' and current_user.role in ['l4_approver', 'L4_APPROVER']) or
+  (po.status == 'l4_approved' and current_user.role in ['finance', 'FINANCE']) or
+  (po.status == 'l5_approved' and current_user.role in ['md_owner', 'MD_OWNER']) or
+  (po.status in ['l3_approved', 'l4_approved', 'l5_approved'] and current_user.role in ['md_owner', 'MD_OWNER']) or
+  current_user.role in ['admin', 'ADMIN']
+) and po.requester_id != current_user.id %}
+
+    {% if can_approve %}
+    <div class="card" style="border:2px solid var(--blue);" id="action-panel">
+      <div class="card-header" style="background:#EFF6FF;">
+        <span class="card-title" style="color:var(--blue);">⚡ Action Required</span>
+      </div>
+      <div class="card-body">
+        <p class="text-sm text-muted mb-4">Review the PO details and line items, then take action below.</p>
+
+        <!-- Action selector -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px;">
+          <div onclick="selectAction('approve')" id="btn-approve"
+               style="padding:10px 8px;border-radius:8px;text-align:center;cursor:pointer;transition:all 0.15s;border:2px solid var(--green);background:#F0FDF4;">
+            <div style="font-size:1.2rem;">✓</div>
+            <div style="font-size:0.78rem;font-weight:600;color:var(--green);margin-top:3px;">Approve</div>
+          </div>
+          <div onclick="selectAction('return')" id="btn-return"
+               style="padding:10px 8px;border-radius:8px;text-align:center;cursor:pointer;transition:all 0.15s;border:2px solid var(--border);">
+            <div style="font-size:1.2rem;">↩</div>
+            <div style="font-size:0.78rem;font-weight:600;color:var(--amber);margin-top:3px;">Return</div>
+          </div>
+          <div onclick="selectAction('reject')" id="btn-reject"
+               style="padding:10px 8px;border-radius:8px;text-align:center;cursor:pointer;transition:all 0.15s;border:2px solid var(--border);">
+            <div style="font-size:1.2rem;">✕</div>
+            <div style="font-size:0.78rem;font-weight:600;color:var(--red);margin-top:3px;">Reject</div>
+          </div>
+        </div>
+
+        <!-- Comments -->
+        <div class="form-group">
+          <label class="form-label">Comments <span id="comment-req" class="req" style="display:none;">*</span>
+            <span id="comment-opt" style="color:var(--text-muted);font-weight:400;"> (optional)</span>
+          </label>
+          <textarea id="action-comment" class="form-control" rows="3"
+                    placeholder="Add a note (optional)…"></textarea>
+        </div>
+
+        <!-- Submit buttons - simple direct forms, no JS needed -->
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <form id="form-approve" method="POST" action="/pos/{{ po.id }}/approve">
+            <input type="hidden" name="comments" value="">
+            <button type="submit" class="btn btn-success" style="width:100%;justify-content:center;">✓ Approve PO</button>
+          </form>
+          <form id="form-return" method="POST" action="/pos/{{ po.id }}/return">
+            <input type="hidden" name="reason" id="return-reason" value="Returned for revision">
+            <button type="submit" class="btn btn-warning" style="width:100%;justify-content:center;"
+              onclick="var r=window.prompt('Return reason (required):');if(!r){return false;}this.form.reason.value=r;">
+              ↩ Return to Requester
+            </button>
+          </form>
+          <form id="form-reject" method="POST" action="/pos/{{ po.id }}/reject">
+            <input type="hidden" name="reason" id="reject-reason" value="Rejected">
+            <button type="submit" class="btn btn-danger" style="width:100%;justify-content:center;"
+              onclick="var r=window.prompt('Rejection reason (required):');if(!r){return false;}this.form.reason.value=r;">
+              ✕ Reject PO
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- PO summary box -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">Summary</span></div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:10px;">
+        <div class="flex justify-between">
+          <span class="text-sm text-muted">Subtotal</span>
+          <span class="font-mono text-sm">₹{{ "{:,.2f}".format(po.subtotal) }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-sm text-muted">GST</span>
+          <span class="font-mono text-sm">₹{{ "{:,.2f}".format(po.gst_amount) }}</span>
+        </div>
+        <hr class="divider" style="margin:4px 0;">
+        <div class="flex justify-between">
+          <span style="font-weight:700;color:var(--blue);">Total Amount</span>
+          <span class="font-mono" style="font-size:1.1rem;font-weight:800;color:var(--blue);">₹{{ "{:,.2f}".format(po.total_amount) }}</span>
+        </div>
+        <div class="flex justify-between mt-2">
+          <span class="text-xs text-muted">Approval levels</span>
+          <span class="text-xs font-bold">{{ po.required_levels }} levels</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-xs text-muted">Current level</span>
+          <span class="text-xs font-bold">Level {{ po.current_level }} of {{ po.required_levels }}</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var currentAction = 'approve';
+document.addEventListener('DOMContentLoaded', function() { selectAction('approve'); });
+
+function selectAction(action) {
+  currentAction = action;
+  var colors = {approve: ['var(--green)', '#F0FDF4'], return: ['var(--amber)', '#FFFBEB'], reject: ['var(--red)', '#FEF2F2']};
+  ['approve','return','reject'].forEach(function(a) {
+    var el = document.getElementById('btn-' + a);
+    if (!el) return;
+    if (a === action) {
+      el.style.border = '2px solid ' + colors[a][0];
+      el.style.background = colors[a][1];
+    } else {
+      el.style.border = '2px solid var(--border)';
+      el.style.background = 'var(--bg-card)';
+    }
+    document.getElementById('form-' + a).style.display = (a === action) ? 'block' : 'none';
+  });
+  var placeholders = {approve: 'Add a note (optional)...', return: 'Explain what information is needed...', reject: 'State the reason for rejection...'};
+  document.getElementById('action-comment').placeholder = placeholders[action];
+  document.getElementById('comment-req').style.display = action !== 'approve' ? 'inline' : 'none';
+  document.getElementById('comment-opt').style.display = action === 'approve' ? 'inline' : 'none';
+}
+
+function submitAction(formId, inputId) {
+  var comment = document.getElementById('action-comment').value;
+  if (formId !== 'form-approve' && !comment.trim()) {
+    alert('Please provide a reason.');
+    return false;
+  }
+  document.getElementById(inputId).value = comment;
+  document.getElementById(formId).submit();
+  return true;
+}
+</script>
+{% endblock %}

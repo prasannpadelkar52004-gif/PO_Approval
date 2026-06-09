@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Approval Chains{% endblock %}
+{% block page_title %}Approval Chains{% endblock %}
+
+{% block topbar_actions %}
+<button onclick="document.getElementById('create-chain-modal').style.display='flex'" class="btn btn-primary btn-sm">
+  + New Chain
+</button>
+{% endblock %}
+
+{% block content %}
+
+{% if not chains %}
+<div class="alert alert-warning" style="margin-bottom:20px;">
+  ⚠️ No approval chains configured. POs will use default 2-level approval. Add chains below to configure amount-based routing.
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-body" style="padding:0;">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Category</th><th>Min Amount</th><th>Max Amount</th><th>Levels</th><th>SLA (hrs)</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in chains %}
+          <tr>
+            <td style="font-weight:600;">{{ c.name }}</td>
+            <td>{{ c.po_category.replace('_',' ').title() }}</td>
+            <td class="font-mono">₹{{ "%.0f"|format(c.min_amount) }}</td>
+            <td class="font-mono">{% if c.max_amount %}₹{{ "%.0f"|format(c.max_amount) }}{% else %}Unlimited{% endif %}</td>
+            <td style="text-align:center;font-weight:700;">{{ c.required_levels }}</td>
+            <td style="text-align:center;">{{ c.sla_hours }}h</td>
+            <td>
+              {% if c.is_active %}
+              <span class="badge badge-approved">Active</span>
+              {% else %}
+              <span class="badge badge-cancelled">Inactive</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--text-muted);">No chains configured yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Create Chain Modal -->
+<div id="create-chain-modal" class="modal-backdrop" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Create Approval Chain</span>
+      <button class="modal-close" onclick="document.getElementById('create-chain-modal').style.display='none'">✕</button>
+    </div>
+    <form method="POST" action="/admin/chains/create">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Chain Name <span class="req">*</span></label>
+          <input type="text" name="name" class="form-control" placeholder="e.g. Material > 1L" required>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">PO Category <span class="req">*</span></label>
+            <select name="po_category" class="form-control" required>
+              {% for cat in categories %}
+              <option value="{{ cat }}">{{ cat.replace('_',' ').title() }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Required Levels <span class="req">*</span></label>
+            <select name="required_levels" class="form-control">
+              <option value="1">1 Level</option>
+              <option value="2" selected>2 Levels</option>
+              <option value="3">3 Levels</option>
+              <option value="4">4 Levels</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Min Amount (₹)</label>
+            <input type="number" name="min_amount" class="form-control" value="0" min="0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Amount (₹) <span style="color:var(--text-muted);font-weight:400;">(leave blank = unlimited)</span></label>
+            <input type="number" name="max_amount" class="form-control" min="0">
+          </div>
+          <div class="form-group">
+            <label class="form-label">SLA Hours</label>
+            <input type="number" name="sla_hours" class="form-control" value="24" min="1">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('create-chain-modal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Chain</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

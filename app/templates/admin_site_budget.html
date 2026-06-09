@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}{{ site.name }} — Budget{% endblock %}
+{% block page_title %}{{ site.name }} — Budget Management{% endblock %}
+
+{% block topbar_actions %}
+<button onclick="document.getElementById('add-budget-modal').style.display='flex'" class="btn btn-primary btn-sm">
+  + Add Budget
+</button>
+<a href="/admin/sites" class="btn btn-secondary btn-sm">← Back to Sites</a>
+{% endblock %}
+
+{% block content %}
+
+<!-- Budget Summary -->
+<div class="stat-grid" style="margin-bottom:24px;">
+  <div class="stat-card" style="--accent:var(--blue)">
+    <div class="stat-label">Total Budget</div>
+    <div class="stat-value" style="font-size:1.4rem;">₹{{ "{:,.0f}".format(total_budget) }}</div>
+  </div>
+  <div class="stat-card" style="--accent:var(--green)">
+    <div class="stat-label">Total Spent</div>
+    <div class="stat-value" style="font-size:1.4rem;color:var(--green);">₹{{ "{:,.0f}".format(total_spent) }}</div>
+  </div>
+  <div class="stat-card" style="--accent:var(--amber)">
+    <div class="stat-label">Remaining</div>
+    <div class="stat-value" style="font-size:1.4rem;color:var(--amber);">₹{{ "{:,.0f}".format(total_budget - total_spent) }}</div>
+  </div>
+  <div class="stat-card" style="--accent:var(--purple)">
+    <div class="stat-label">Utilization</div>
+    <div class="stat-value" style="font-size:1.4rem;color:var(--purple);">
+      {% if total_budget > 0 %}{{ "{:.1f}".format((total_spent / total_budget) * 100) }}%{% else %}0%{% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Budget by Category -->
+{% for cat_name, cat_data in budgets_by_category.items() %}
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-header">
+    <span class="card-title">{{ cat_name.replace('_',' ').title() }}</span>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span style="font-size:0.83rem;color:var(--text-muted);">
+        Total: <strong>₹{{ "{:,.0f}".format(cat_data.total_budget) }}</strong>
+        | Spent: <strong style="color:var(--green);">₹{{ "{:,.0f}".format(cat_data.total_spent) }}</strong>
+      </span>
+    </div>
+  </div>
+  <div class="card-body" style="padding:0;">
+    <table>
+      <thead>
+        <tr>
+          <th>Sub-Category</th>
+          <th style="text-align:right;">Budget (₹)</th>
+          <th style="text-align:right;">Spent (₹)</th>
+          <th style="text-align:right;">Remaining (₹)</th>
+          <th style="text-align:right;">Used %</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in cat_data.items %}
+        <tr>
+          <td style="font-weight:500;">{{ b.sub_category or 'General' }}</td>
+          <td style="text-align:right;" class="font-mono">₹{{ "{:,.0f}".format(b.budget_amount) }}</td>
+          <td style="text-align:right;" class="font-mono" style="color:var(--green);">₹{{ "{:,.0f}".format(b.spent_amount) }}</td>
+          <td style="text-align:right;" class="font-mono">₹{{ "{:,.0f}".format(b.budget_amount - b.spent_amount) }}</td>
+          <td style="text-align:right;">
+            {% set pct = ((b.spent_amount / b.budget_amount) * 100) if b.budget_amount > 0 else 0 %}
+            <span style="color:{% if pct >= 90 %}var(--red){% elif pct >= 70 %}var(--amber){% else %}var(--green){% endif %};font-weight:600;">
+              {{ "{:.1f}".format(pct) }}%
+            </span>
+          </td>
+          <td>
+            {% if b.is_active %}
+            <span class="badge badge-approved">Active</span>
+            {% else %}
+            <span class="badge badge-cancelled">Inactive</span>
+            {% endif %}
+          </td>
+          <td>
+            <button onclick="editBudget('{{ b.id }}','{{ b.sub_category }}','{{ b.budget_amount }}')"
+                    class="btn btn-secondary btn-sm">Edit</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+
+<!-- Add Budget Modal -->
+<div id="add-budget-modal" class="modal-backdrop" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Add Budget Category</span>
+      <button class="modal-close" onclick="document.getElementById('add-budget-modal').style.display='none'">✕</button>
+    </div>
+    <form method="POST" action="/admin/sites/{{ site.id }}/budget/add">
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Category <span class="req">*</span></label>
+            <select name="category" class="form-control" required onchange="updateSubCategories(this.value)">
+              {% for cat in categories %}
+              <option value="{{ cat }}">{{ cat.replace('_',' ').title() }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Sub-Category</label>
+            <select name="sub_category" class="form-control" id="sub-cat-select">
+              <option value="">— General —</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Project (optional)</label>
+          <select name="project_id" class="form-control">
+            <option value="">— All Projects —</option>
+            {% for p in projects %}
+            <option value="{{ p.id }}">{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Budget Amount (₹) <span class="req">*</span></label>
+          <input type="number" name="budget_amount" class="form-control" min="1" step="1000" required placeholder="e.g. 500000">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('add-budget-modal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add Budget</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Budget Modal -->
+<div id="edit-budget-modal" class="modal-backdrop" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Edit Budget</span>
+      <button class="modal-close" onclick="document.getElementById('edit-budget-modal').style.display='none'">✕</button>
+    </div>
+    <form method="POST" action="/admin/sites/{{ site.id }}/budget/edit" id="edit-budget-form">
+      <div class="modal-body">
+        <input type="hidden" name="budget_id" id="edit-budget-id">
+        <div class="form-group">
+          <label class="form-label">Sub-Category</label>
+          <input type="text" id="edit-subcat-display" class="form-control" disabled>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Budget Amount (₹) <span class="req">*</span></label>
+          <input type="number" name="budget_amount" id="edit-budget-amount" class="form-control" min="1" step="1000" required>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('edit-budget-modal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-primary">Update Budget</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var SUB_CATEGORIES = {
+  'material': ['Steel','Cement','Sand','Bricks','Paint','Tiles'],
+  'subcontractor': ['Civil Work','Electrical Work','Plumbing','Carpentry'],
+  'equipment_rental': ['Crane','JCB','Mixer','Generator'],
+  'office_admin': ['Stationery','Furniture','Housekeeping'],
+  'it_software': ['Hardware','Software License','Networking'],
+  'capital_expenditure': ['Machinery','Vehicles','Land'],
+  'urgent_emergency': ['Emergency Repairs','Safety Equipment']
+};
+
+function updateSubCategories(cat) {
+  var sel = document.getElementById('sub-cat-select');
+  sel.innerHTML = '<option value="">— General —</option>';
+  var subs = SUB_CATEGORIES[cat] || [];
+  subs.forEach(function(s) {
+    sel.innerHTML += '<option value="' + s + '">' + s + '</option>';
+  });
+}
+
+function editBudget(id, subcat, amount) {
+  document.getElementById('edit-budget-id').value = id;
+  document.getElementById('edit-subcat-display').value = subcat || 'General';
+  document.getElementById('edit-budget-amount').value = amount;
+  document.getElementById('edit-budget-modal').style.display = 'flex';
+}
+
+// Init sub-categories for first category
+updateSubCategories(document.querySelector('select[name="category"]').value);
+</script>
+{% endblock %}

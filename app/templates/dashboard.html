@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block topbar_actions %}
+  <a href="/pos/new" class="btn btn-primary btn-sm">
+    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M12 4v16M4 12h16"/></svg>
+    New PO
+  </a>
+{% endblock %}
+
+{% block content %}
+
+<div class="stat-grid">
+  <div class="stat-card" style="--accent: var(--blue)">
+    <div class="stat-label">Pending My Action</div>
+    <div class="stat-value">{{ stats['pending_my_action'] }}</div>
+    <div class="stat-sub">POs waiting for your approval</div>
+  </div>
+  <div class="stat-card" style="--accent: var(--amber)">
+    <div class="stat-label">My Open POs</div>
+    <div class="stat-value">{{ stats['my_open_pos'] }}</div>
+    <div class="stat-sub">POs you raised, still in flow</div>
+  </div>
+  <div class="stat-card" style="--accent: var(--green)">
+    <div class="stat-label">Approved This Month</div>
+    <div class="stat-value">{{ stats['approved_this_month'] }}</div>
+    <div class="stat-sub">Fully approved POs</div>
+  </div>
+  <div class="stat-card" style="--accent: var(--red)">
+    <div class="stat-label">Rejected This Month</div>
+    <div class="stat-value">{{ stats['rejected_this_month'] }}</div>
+    <div class="stat-sub">POs returned to requesters</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;">
+
+  <!-- Recent POs -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Recent Purchase Orders</span>
+      <a href="/pos" class="btn btn-secondary btn-sm">View all</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>PO Number</th>
+            <th>Vendor</th>
+            <th>Amount</th>
+            <th>Status</th>
+            <th>Priority</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for po in recent_pos %}
+          <tr style="cursor:pointer" onclick="window.location='/pos/{{ po['id'] }}'">
+            <td><span class="td-mono">{{ po['po_number'] }}</span></td>
+            <td>{{ po['vendor_name'] }}</td>
+            <td class="font-bold">₹{{ "{:,.0f}".format(po['total_amount']) }}</td>
+            <td><span class="badge badge-{{ po['status'] }}">{{ po['status'].replace('_',' ').title() }}</span></td>
+            <td><span class="badge badge-{{ po['priority'] }}">{{ po['priority'].title() }}</span></td>
+            <td class="td-muted">{{ po['created_at'].strftime('%d %b %Y') }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6">
+            <div class="empty-state">
+              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+              <p>No purchase orders yet. <a href="/pos/new">Create your first PO →</a></p>
+            </div>
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Pending approvals -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Needs Your Action</span>
+      <span class="badge badge-submitted">{{ pending_approvals|length }} pending</span>
+    </div>
+    <div class="card-body" style="padding:0;">
+      {% for po in pending_approvals %}
+      <a href="/pos/{{ po['id'] }}" style="display:block;padding:14px 18px;border-bottom:1px solid var(--border);text-decoration:none;transition:background 0.1s;"
+         onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background=''">
+        <div class="flex justify-between items-center">
+          <span class="td-mono" style="font-size:0.8rem;">{{ po['po_number'] }}</span>
+          <span class="badge badge-{{ po['priority'] }}">{{ po['priority'] }}</span>
+        </div>
+        <div style="font-size:0.84rem;font-weight:500;color:var(--text-mid);margin:3px 0;">{{ po['vendor_name'] }}</div>
+        <div class="flex justify-between items-center mt-1">
+          <span style="font-size:0.8rem;color:var(--text-muted);">₹{{ "{:,.0f}".format(po['total_amount']) }}</span>
+          <span class="badge badge-{{ po['status'] }}" style="font-size:0.68rem;">L{{ po['current_level'] }}</span>
+        </div>
+      </a>
+      {% else %}
+      <div class="empty-state" style="padding:32px 16px;">
+        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <p>You're all caught up!</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

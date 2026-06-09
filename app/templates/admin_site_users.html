@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}{{ site.name }} — Users{% endblock %}
+{% block page_title %}{{ site.name }} — User Management{% endblock %}
+
+{% block topbar_actions %}
+<button onclick="document.getElementById('add-user-modal').style.display='flex'" class="btn btn-primary btn-sm">+ Add User</button>
+<a href="/admin/sites" class="btn btn-secondary btn-sm">← Back to Sites</a>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body" style="padding:0;">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td style="font-weight:600;">{{ u.full_name }}</td>
+          <td class="td-muted">{{ u.email }}</td>
+          <td><span class="badge badge-submitted">{{ u.role.replace('_',' ').title() }}</span></td>
+          <td>
+            {% if u.is_active %}<span class="badge badge-approved">Active</span>
+            {% else %}<span class="badge badge-cancelled">Inactive</span>{% endif %}
+          </td>
+          <td>
+            <form method="POST" action="/admin/users/{{ u.id }}/toggle" style="display:inline;">
+              <button type="submit" class="btn btn-secondary btn-sm">
+                {% if u.is_active %}Deactivate{% else %}Activate{% endif %}
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not users %}
+        <tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted);">No users assigned to this site yet.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add User Modal -->
+<div id="add-user-modal" class="modal-backdrop" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Add User to {{ site.name }}</span>
+      <button class="modal-close" onclick="document.getElementById('add-user-modal').style.display='none'">✕</button>
+    </div>
+    <form method="POST" action="/admin/sites/{{ site.id }}/users/create">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Full Name <span class="req">*</span></label>
+          <input type="text" name="full_name" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email <span class="req">*</span></label>
+          <input type="email" name="email" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password <span class="req">*</span></label>
+          <input type="password" name="password" class="form-control" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Role <span class="req">*</span></label>
+          <select name="role" class="form-control" required>
+            {% for role in roles %}
+            <option value="{{ role }}">{{ role.replace('_',' ').title() }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('add-user-modal').style.display='none'">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add User</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

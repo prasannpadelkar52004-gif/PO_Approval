@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In — P E E I PO System</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --navy: #0F1B2D; --blue: #2563EB; --border: #E2E8F0;
+      --text: #0F172A; --text-muted: #64748B; --bg: #F8FAFC;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+    /* Left panel — branding */
+    .panel-brand {
+      background: var(--navy);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 60px;
+      position: relative;
+      overflow: hidden;
+    }
+    .panel-brand::before {
+      content: '';
+      position: absolute;
+      top: -100px; right: -100px;
+      width: 400px; height: 400px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(37,99,235,0.25) 0%, transparent 70%);
+    }
+    .panel-brand::after {
+      content: '';
+      position: absolute;
+      bottom: -80px; left: -80px;
+      width: 300px; height: 300px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(13,148,136,0.2) 0%, transparent 70%);
+    }
+    .brand-content { position: relative; z-index: 1; }
+    .brand-logo {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: #fff;
+      letter-spacing: -0.03em;
+      margin-bottom: 6px;
+    }
+    .brand-tagline {
+      font-size: 0.85rem;
+      color: #64748B;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 500;
+      margin-bottom: 56px;
+    }
+    .brand-headline {
+      font-family: 'Syne', sans-serif;
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: #fff;
+      line-height: 1.2;
+      margin-bottom: 20px;
+      letter-spacing: -0.02em;
+    }
+    .brand-headline span { color: #60A5FA; }
+    .brand-desc { color: #94A3B8; font-size: 0.95rem; line-height: 1.7; max-width: 380px; }
+    .brand-features { margin-top: 40px; display: flex; flex-direction: column; gap: 14px; }
+    .brand-feature {
+      display: flex; align-items: center; gap: 12px;
+      color: #CBD5E1; font-size: 0.875rem;
+    }
+    .brand-feature-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #3B82F6; flex-shrink: 0;
+    }
+
+    /* Right panel — form */
+    .panel-form {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+    }
+    .form-card {
+      width: 100%;
+      max-width: 400px;
+    }
+    .form-heading {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: var(--text);
+      margin-bottom: 6px;
+      letter-spacing: -0.02em;
+    }
+    .form-sub {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-bottom: 36px;
+    }
+    .form-group { margin-bottom: 18px; }
+    .form-label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #334155;
+      margin-bottom: 7px;
+    }
+    .form-input {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: 9px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.9rem;
+      color: var(--text);
+      background: #fff;
+      outline: none;
+      transition: all 0.15s;
+    }
+    .form-input:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+    }
+    .btn-login {
+      width: 100%;
+      padding: 12px;
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 9px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: all 0.15s;
+    }
+    .btn-login:hover {
+      background: #1D4ED8;
+      box-shadow: 0 4px 16px rgba(37,99,235,0.35);
+    }
+    .error-msg {
+      background: #FEF2F2;
+      border: 1px solid #FECACA;
+      color: #DC2626;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.855rem;
+      margin-bottom: 18px;
+    }
+    @media (max-width: 768px) {
+      body { grid-template-columns: 1fr; }
+      .panel-brand { display: none; }
+      .panel-form { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="panel-brand">
+    <div class="brand-content">
+      <div class="brand-logo">P E E I</div>
+      <div class="brand-tagline">PO Approval System</div>
+      <h1 class="brand-headline">Digital approvals for <span>construction teams</span></h1>
+      <p class="brand-desc">Replace paper-based purchase orders with a fast, transparent multi-level approval workflow — accessible from any site, any device.</p>
+      <div class="brand-features">
+        <div class="brand-feature"><div class="brand-feature-dot"></div>3–4 level configurable approval chains</div>
+        <div class="brand-feature"><div class="brand-feature-dot"></div>Real-time email notifications</div>
+        <div class="brand-feature"><div class="brand-feature-dot"></div>Full audit trail for every PO</div>
+        <div class="brand-feature"><div class="brand-feature-dot"></div>Works on any device, any browser</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel-form">
+    <div class="form-card">
+      <h2 class="form-heading">Welcome back</h2>
+      <p class="form-sub">Sign in to your account to continue</p>
+
+      {% if error %}
+      <div class="error-msg">{{ error }}</div>
+      {% endif %}
+
+      <form method="POST" action="/login">
+        <div class="form-group">
+          <label class="form-label">Email address</label>
+          <input type="email" name="username" class="form-input"
+                 placeholder="you@company.com"
+                 required autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" name="password" class="form-input"
+                 placeholder="••••••••" required>
+        </div>
+        <button type="submit" class="btn-login">Sign in →</button>
+      </form>
+    </div>
+  </div>
+
+</body>
+</html>

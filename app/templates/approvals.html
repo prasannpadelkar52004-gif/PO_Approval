@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Pending Approvals{% endblock %}
+{% block page_title %}Pending Approvals{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:20px;">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <span style="background:var(--red);color:#fff;border-radius:100px;padding:3px 12px;font-size:0.8rem;font-weight:700;">{{ pos|length }} pending</span>
+    <span style="color:var(--text-muted);font-size:0.875rem;">POs waiting for your action</span>
+  </div>
+</div>
+
+{% if pos %}
+<div style="display:flex;flex-direction:column;gap:14px;">
+  {% for po in pos %}
+  <div class="card" style="border-left:4px solid {% if po.priority == 'urgent' %}var(--amber){% else %}var(--blue){% endif %};">
+    <div class="card-body" style="padding:18px 22px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
+        <div style="flex:1;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+            <a href="/pos/{{ po.id }}" class="td-mono" style="font-size:1rem;">{{ po.po_number }}</a>
+            <span class="badge badge-{{ po.status }}">{{ po.status.replace('_',' ').title() }}</span>
+            {% if po.priority == 'urgent' %}
+            <span class="badge badge-urgent">⚡ Urgent</span>
+            {% endif %}
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px;">
+            <div>
+              <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:2px;">Vendor</div>
+              <div style="font-size:0.875rem;font-weight:500;">{{ po.vendor_name }}</div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:2px;">Requester</div>
+              <div style="font-size:0.875rem;">{{ po.requester_name }}</div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:2px;">Category</div>
+              <div style="font-size:0.875rem;">{{ po.po_category.replace('_',' ').title() }}</div>
+            </div>
+            <div>
+              <div style="font-size:0.72rem;color:var(--text-muted);text-transform:uppercase;font-weight:600;margin-bottom:2px;">Required By</div>
+              <div style="font-size:0.875rem;">{{ po.required_by.strftime('%d %b %Y') if po.required_by else '—' }}</div>
+            </div>
+          </div>
+          <div style="font-family:'DM Mono',monospace;font-size:1.1rem;font-weight:800;color:var(--blue);">₹{{ "%.2f"|format(po.total_amount) }}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;min-width:200px;">
+          <a href="/pos/{{ po.id }}" class="btn btn-secondary btn-sm" style="justify-content:center;">View Details</a>
+          <form method="POST" action="/pos/{{ po.id }}/approve" style="margin:0;">
+            <input type="hidden" name="comments" value="">
+            <button type="submit" class="btn btn-success btn-sm" style="width:100%;justify-content:center;">
+              ✓ Approve
+            </button>
+          </form>
+          <form method="POST" action="/pos/{{ po.id }}/reject" style="margin:0;">
+            <input type="hidden" name="reason" value="Rejected by approver">
+            <button type="submit" class="btn btn-danger btn-sm" style="width:100%;justify-content:center;"
+                    onclick="var r=prompt('Rejection reason:');if(!r)return false;this.previousElementSibling.value=r;">
+              ✗ Reject
+            </button>
+          </form>
+          <form method="POST" action="/pos/{{ po.id }}/return" style="margin:0;">
+            <input type="hidden" name="reason" value="Returned for revision">
+            <button type="submit" class="btn btn-warning btn-sm" style="width:100%;justify-content:center;"
+                    onclick="var r=prompt('Return reason:');if(!r)return false;this.previousElementSibling.value=r;">
+              ↩ Return
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="card">
+  <div class="empty-state">
+    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <p>You're all caught up! No POs pending your approval.</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}{% if po %}Edit {{ po.po_number }}{% else %}New PO{% endif %}{% endblock %}
+{% block page_title %}{% if po %}Edit {{ po.po_number }}{% else %}New Purchase Order{% endif %}{% endblock %}
+
+{% block content %}
+<form method="POST" action="{% if po %}/pos/{{ po.id }}/edit{% else %}/pos{% endif %}"
+      enctype="multipart/form-data"
+      id="po-form" onsubmit="return prepareSubmit(event)">
+
+  {% if error %}
+  <div class="alert alert-danger" style="margin-bottom:16px;">
+    <strong>Error:</strong> {{ error }}
+  </div>
+  {% endif %}
+
+  <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;">
+
+    <div style="display:flex;flex-direction:column;gap:20px;">
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">PO Information</span></div>
+        <div class="card-body">
+          <div class="form-grid">
+            <div class="form-group">
+              <label class="form-label">Vendor <span class="req">*</span></label>
+              <select name="vendor_id" class="form-control" required>
+                <option value="">— Select vendor —</option>
+                {% for vendor in vendors %}
+                <option value="{{ vendor.id }}" {% if po and po.vendor_id == vendor.id %}selected{% endif %}>{{ vendor.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">PO Category <span class="req">*</span></label>
+              <select name="po_category" class="form-control" required>
+                {% for cat in ['material','subcontractor','equipment_rental','office_admin','it_software','capital_expenditure','urgent_emergency'] %}
+                <option value="{{ cat }}" {% if po and po.po_category == cat %}selected{% endif %}>{{ cat.replace('_',' ').title() }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Project / Site</label>
+              <select name="project_id" class="form-control">
+                <option value="">— Select project —</option>
+                {% for project in projects %}
+                <option value="{{ project.id }}" {% if po and po.project_id == project.id %}selected{% endif %}>{{ project.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Department</label>
+              <select name="department_id" class="form-control">
+                <option value="">— Select department —</option>
+                {% for dept in departments %}
+                <option value="{{ dept.id }}" {% if po and po.department_id == dept.id %}selected{% endif %}>{{ dept.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Required By <span class="req">*</span></label>
+              <input type="date" name="required_by" class="form-control" required
+                     value="{{ po.required_by.strftime('%Y-%m-%d') if po else '' }}"
+                     min="{{ today }}">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Priority</label>
+              <select name="priority" class="form-control">
+                <option value="normal" {% if not po or po.priority == 'normal' %}selected{% endif %}>Normal</option>
+                <option value="urgent" {% if po and po.priority == 'urgent' %}selected{% endif %}>⚡ Urgent</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Payment Terms</label>
+              <select name="payment_terms" class="form-control">
+                <option value="">— Select —</option>
+                {% for t in ['Advance','7 days','15 days','30 days','45 days','60 days','On delivery'] %}
+                <option value="{{ t }}" {% if po and po.payment_terms == t %}selected{% endif %}>{{ t }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Purpose / Description <span class="req">*</span></label>
+            <textarea name="description" class="form-control" rows="3" required
+                      placeholder="Describe what this PO is for and why it's needed…">{{ po.description if po else '' }}</textarea>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">Delivery Address <span class="req">*</span></label>
+            <textarea name="delivery_address" class="form-control" rows="2" required
+                      placeholder="Site address where goods should be delivered…">{{ po.delivery_address if po else '' }}</textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Line items -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Line Items</span>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="addLineItem()">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="width:14px;height:14px;"><path d="M12 4v16M4 12h16"/></svg>
+            Add Item
+          </button>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div style="display:grid;grid-template-columns:3fr 1fr 1.2fr 1.2fr 1fr 1fr 36px;gap:8px;padding:10px 18px;background:#F8FAFC;border-bottom:1px solid var(--border);">
+            <span class="text-xs" style="font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;">Description</span>
+            <span class="text-xs" style="font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;">Unit</span>
+            <span class="text-xs" style="font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;text-align:right;">Quantity</span>
+            <span class="text-xs" style="font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;text-align:right;">Unit Rate ₹</span>
+            <span class="text-xs" style="font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;text-align:right;">GST %</span>
+            <span class="text-xs" style="font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;text-align:right;">Total ₹</span>
+            <span></span>
+          </div>
+          <div id="line-items-container"></div>
+          <div style="padding:14px 18px;background:#F8FAFC;border-top:1px solid var(--border);">
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:300px;margin-left:auto;">
+              <div class="flex justify-between" style="width:100%;"><span class="text-sm text-muted">Subtotal</span><span class="font-mono text-sm" id="subtotal-display">₹0.00</span></div>
+              <div class="flex justify-between" style="width:100%;"><span class="text-sm text-muted">GST</span><span class="font-mono text-sm" id="gst-display">₹0.00</span></div>
+              <hr style="width:100%;border:none;border-top:1px solid var(--border-dark);">
+              <div class="flex justify-between" style="width:100%;"><span style="font-weight:700;color:var(--blue);">Grand Total</span><span class="font-mono" style="font-size:1.1rem;font-weight:800;color:var(--blue);" id="grand-total-display">₹0.00</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Attachments <span style="font-weight:400;color:var(--text-muted);font-size:0.82rem;">(optional)</span></span></div>
+        <div class="card-body">
+          <input type="file" name="attachments" multiple class="form-control" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.docx" style="padding:8px;">
+          <div class="form-hint">Accepted: PDF, JPG, PNG, Excel, Word. Max 10MB per file.</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right panel -->
+    <div style="display:flex;flex-direction:column;gap:16px;position:sticky;top:78px;align-self:start;">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Submit PO</span></div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:12px;">
+          <div class="alert alert-info" style="margin-bottom:0;">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            The approval level will be determined automatically based on the total amount and category.
+          </div>
+          <div style="font-size:0.84rem;color:var(--text-muted);">Grand Total</div>
+          <div class="font-mono" style="font-size:1.4rem;font-weight:800;color:var(--blue);" id="grand-total-sidebar">₹0.00</div>
+          <button type="submit" name="save_action" value="draft" class="btn btn-secondary" style="width:100%;justify-content:center;">Save as Draft</button>
+          <button type="submit" name="save_action" value="submit" class="btn btn-primary" style="width:100%;justify-content:center;">Save and Submit for Approval →</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <input type="hidden" name="line_items_json" id="line_items_json" value="[]">
+
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var UNITS = ['nos','kg','mt','sqft','sqm','rmt','lot','litre','bag','box'];
+var GST_RATES = [0, 5, 12, 18, 28];
+var items = {{ (existing_items | tojson if existing_items else '[{"description":"","unit":"nos","qty":1,"rate":0,"gst":18,"total":0}]') | safe }};
+
+function fmt(n) {
+  return '₹' + Number(n).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function calcItem(idx) {
+  var item = items[idx];
+  var amount = item.qty * item.rate;
+  item.total = amount + (amount * item.gst / 100);
+}
+
+function updateTotals() {
+  var subtotal = 0, gstTotal = 0;
+  items.forEach(function(item) {
+    subtotal += item.qty * item.rate;
+    gstTotal += item.qty * item.rate * item.gst / 100;
+  });
+  var grand = subtotal + gstTotal;
+  document.getElementById('subtotal-display').textContent = fmt(subtotal);
+  document.getElementById('gst-display').textContent = fmt(gstTotal);
+  document.getElementById('grand-total-display').textContent = fmt(grand);
+  document.getElementById('grand-total-sidebar').textContent = fmt(grand);
+}
+
+function renderItems() {
+  var container = document.getElementById('line-items-container');
+  if (!container) return;
+  container.innerHTML = '';
+  items.forEach(function(item, idx) {
+    var unitOptions = UNITS.map(function(u) {
+      return '<option value="' + u + '"' + (item.unit === u ? ' selected' : '') + '>' + u + '</option>';
+    }).join('');
+    var gstOptions = GST_RATES.map(function(g) {
+      return '<option value="' + g + '"' + (item.gst === g ? ' selected' : '') + '>' + g + '%</option>';
+    }).join('');
+    var row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:3fr 1fr 1.2fr 1.2fr 1fr 1fr 36px;gap:8px;padding:10px 18px;border-bottom:1px solid var(--border);align-items:center;';
+    row.innerHTML =
+      '<input type="text" class="form-control" placeholder="Item description" style="font-size:0.84rem;" value="' + (item.description||'').replace(/"/g,'\"') + '" oninput="items[' + idx + '].description=this.value">' +
+      '<select class="form-control" style="font-size:0.84rem;" onchange="items[' + idx + '].unit=this.value">' + unitOptions + '</select>' +
+      '<input type="number" class="form-control" style="font-size:0.84rem;text-align:right;" min="0.001" step="0.001" value="' + item.qty + '" oninput="items[' + idx + '].qty=parseFloat(this.value)||0;calcItem(' + idx + ');updateTotals();">' +
+      '<input type="number" class="form-control" style="font-size:0.84rem;text-align:right;" min="0" step="0.01" value="' + item.rate + '" oninput="items[' + idx + '].rate=parseFloat(this.value)||0;calcItem(' + idx + ');updateTotals();">' +
+      '<select class="form-control" style="font-size:0.84rem;" onchange="items[' + idx + '].gst=parseFloat(this.value);calcItem(' + idx + ');updateTotals();">' + gstOptions + '</select>' +
+      '<div style="text-align:right;font-family:\'DM Mono\',monospace;font-size:0.84rem;font-weight:600;color:var(--blue);" id="item-total-' + idx + '">' + fmt(item.total||0) + '</div>' +
+      '<button type="button" onclick="removeItem(' + idx + ')" style="background:none;border:none;cursor:pointer;color:var(--red);padding:4px;border-radius:6px;"' + (items.length === 1 ? ' disabled' : '') + '>' +
+        '<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>' +
+      '</button>';
+    container.appendChild(row);
+  });
+  updateTotals();
+}
+
+function addLineItem() {
+  items.push({description:'', unit:'nos', qty:1, rate:0, gst:18, total:0});
+  renderItems();
+}
+
+function removeItem(idx) {
+  if (items.length > 1) { items.splice(idx, 1); renderItems(); }
+}
+
+function prepareSubmit(event) {
+  event.preventDefault();
+  items.forEach(function(_, i) { calcItem(i); });
+  var json = JSON.stringify(items);
+  document.getElementById('line_items_json').value = json;
+  var form = document.getElementById('po-form');
+  form.onsubmit = null;
+  form.submit();
+  return false;
+}
+
+// DOM is ready since this script runs after body
+renderItems();
+</script>
+{% endblock %}
