@@ -231,8 +231,12 @@ class PurchaseOrder(TimestampMixin, table=True):
 
     current_level:    int           = Field(default=0)
     required_levels:  int           = Field(default=2)
-    rejection_reason: Optional[str] = Field(default=None, sa_column=Column(Text))
-    return_reason:    Optional[str] = Field(default=None, sa_column=Column(Text))
+    rejection_reason:   Optional[str] = Field(default=None, sa_column=Column(Text))
+    return_reason:      Optional[str] = Field(default=None, sa_column=Column(Text))
+    penalty_clauses:    Optional[str] = Field(default=None, sa_column=Column(Text))
+    delivery_terms:     Optional[str] = Field(default=None, sa_column=Column(Text))
+    warranty_terms:     Optional[str] = Field(default=None, sa_column=Column(Text))
+    special_conditions: Optional[str] = Field(default=None, sa_column=Column(Text))
 
     submitted_at:     Optional[datetime] = Field(default=None)
     approved_at:      Optional[datetime] = Field(default=None)

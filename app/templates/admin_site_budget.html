@@ -59,7 +59,7 @@
         </tr>
       </thead>
       <tbody>
-        {% for b in cat_data.items %}
+        {% for b in cat_data.budget_list %}
         <tr>
           <td style="font-weight:500;">{{ b.sub_category or 'General' }}</td>
           <td style="text-align:right;" class="font-mono">₹{{ "{:,.0f}".format(b.budget_amount) }}</td>

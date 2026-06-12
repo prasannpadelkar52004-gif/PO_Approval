@@ -89,6 +89,10 @@ class POCreate(BaseModel):
     priority: POPriority = POPriority.NORMAL
     site_id: Optional[str] = None
     sub_category: Optional[str] = None
+    penalty_clauses: Optional[str] = None
+    delivery_terms: Optional[str] = None
+    warranty_terms: Optional[str] = None
+    special_conditions: Optional[str] = None
     line_items: List[POLineItemCreate]
 
     @field_validator("line_items")

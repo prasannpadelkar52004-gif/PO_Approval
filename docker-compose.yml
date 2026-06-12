@@ -2,6 +2,8 @@ services:
   migrate:
     build: .
     env_file: .env
+    volumes:
+      - .:/app
     depends_on:
       db:
         condition: service_healthy

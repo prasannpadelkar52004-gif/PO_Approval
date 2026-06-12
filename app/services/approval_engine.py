@@ -122,13 +122,24 @@ class ApprovalEngine:
         if user.role.value in ['admin', 'ADMIN']:
             return True, "ok"
 
-        # MD Owner approves at level 5 (l5_approved) or as final
+        # MD Owner approves at the final level (whatever that is for this PO)
         if user.role.value in ['md_owner', 'MD_OWNER']:
-            if po.status in [POStatus.L5_APPROVED, POStatus.L4_APPROVED, POStatus.L3_APPROVED]:
+            # Build the expected status at the final level
+            level_to_status = {
+                1: POStatus.SUBMITTED,
+                2: POStatus.L1_APPROVED,
+                3: POStatus.L2_APPROVED,
+                4: POStatus.L3_APPROVED,
+                5: POStatus.L4_APPROVED,
+                6: POStatus.L5_APPROVED,
+            }
+            # The MD acts at required_levels (last level)
+            expected_status = level_to_status.get(po.required_levels)
+            if expected_status and po.status == expected_status:
                 return True, "ok"
-            if po.status == POStatus.SUBMITTED and po.required_levels == 1:
-                return True, "ok"
-            return False, "MD Owner approves at the final level only"
+            if user.id == po.requester_id:
+                return False, "You cannot approve your own PO"
+            return False, f"PO is not at MD approval level yet (current: {po.status.value}, needs: {expected_status.value if expected_status else 'unknown'})"
 
         # Role-based mapping for site approvers
         role_level_map = {
@@ -145,6 +156,9 @@ class ApprovalEngine:
             return False, f"PO is not at your approval level (current: {po.status.value})"
         if user.id == po.requester_id:
             return False, "You cannot approve your own PO"
+        # Site check — approver must belong to the same site as the PO
+        if po.site_id and user.site_id and po.site_id != user.site_id:
+            return False, "You are not assigned to this PO's site"
         return True, "ok"
 
     @staticmethod

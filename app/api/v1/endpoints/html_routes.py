@@ -395,6 +395,10 @@ async def create_po_submit(
             priority=form.get("priority", "normal"),
             line_items=line_items,
             site_id=str(user.site_id) if user.site_id else None,
+            penalty_clauses=form.get("penalty_clauses") or None,
+            delivery_terms=form.get("delivery_terms") or None,
+            warranty_terms=form.get("warranty_terms") or None,
+            special_conditions=form.get("special_conditions") or None,
         )
 
         # Get approval chains
@@ -426,6 +430,7 @@ async def create_po_submit(
                     filename=file.filename, s3_key=f"{upload_dir}/{save_name}",
                     content_type=file.content_type or "application/octet-stream",
                     size_bytes=len(content_bytes),
+                    uploaded_by_id=user.id,
                 ))
             await session.commit()
         except Exception as _att_e:
@@ -1014,6 +1019,38 @@ async def download_po_pdf(
         class PDF(FPDF):
             pass
 
+        def sanitize(text):
+            """Replace unsupported unicode chars with ASCII equivalents."""
+            if not text:
+                return ""
+            replacements = {
+                "–": "-",   # en-dash
+                "—": "--",  # em-dash
+                "‘": "'",   # left single quote
+                "’": "'",   # right single quote
+                "“": '"',   # left double quote
+                "”": '"',   # right double quote
+                "…": "...", # ellipsis
+                "°": " degrees",  # degree sign
+                "®": "(R)", # registered trademark
+                "©": "(C)", # copyright
+                "™": "(TM)",# trademark
+                "₹": "Rs.", # rupee sign
+                "é": "e",   # e acute
+                "è": "e",   # e grave
+                "à": "a",   # a grave
+                "ü": "u",   # u umlaut
+                "ö": "o",   # o umlaut
+                "ä": "a",   # a umlaut
+                "•": "-",   # bullet
+                "·": "-",   # middle dot
+                " ": " ",   # non-breaking space
+            }
+            for char, replacement in replacements.items():
+                text = text.replace(char, replacement)
+            # Strip any remaining non-latin1 characters
+            return text.encode("latin-1", errors="replace").decode("latin-1")
+
         pdf = PDF()
         pdf.add_page()
         pdf.set_margins(15, 15, 15)
@@ -1056,21 +1093,21 @@ async def download_po_pdf(
 
         # PO Info
         section_title("PO Information")
-        field("Vendor", po.vendor.name, 90)
+        field("Vendor", sanitize(po.vendor.name), 90)
         field("Requester", po.requester.full_name, 90)
         field("Category", po.po_category.replace("_"," ").title(), 90)
         field("Priority", po.priority.value.title(), 90)
         field("Department", po.department.name if po.department else "-", 90)
         field("Project/Site", po.project.name if po.project else "-", 90)
         field("Required By", po.required_by.strftime("%d %b %Y"), 90)
-        field("Payment Terms", po.payment_terms or "-", 90)
+        field("Payment Terms", sanitize(po.payment_terms or "-"), 90)
         pdf.ln(3)
 
         # Description
         section_title("Description")
         pdf.set_font("Helvetica", "", 9)
         pdf.set_text_color(51, 65, 85)
-        pdf.multi_cell(0, 5, po.description or "-")
+        pdf.multi_cell(0, 5, sanitize(po.description or "-"))
         pdf.ln(3)
 
         # Line Items
@@ -1088,7 +1125,7 @@ async def download_po_pdf(
         pdf.set_text_color(15, 23, 42)
         for i, item in enumerate(po.line_items):
             pdf.cell(col_widths[0], 6, str(i+1), border=1)
-            pdf.cell(col_widths[1], 6, item.description[:35], border=1)
+            pdf.cell(col_widths[1], 6, sanitize(item.description)[:35], border=1)
             pdf.cell(col_widths[2], 6, item.unit_of_measure, border=1)
             pdf.cell(col_widths[3], 6, f"{float(item.quantity):.2f}", border=1, align="R")
             pdf.cell(col_widths[4], 6, f"{float(item.unit_rate):,.2f}", border=1, align="R")
@@ -1133,6 +1170,29 @@ async def download_po_pdf(
                 txt = "Pending"
             pdf.cell(sig_w, 5, txt, ln=0)
         pdf.ln(8)
+
+
+        # Terms & Conditions (only if any field is filled)
+        tnc_fields = [
+            ("Penalty Clauses",  getattr(po, "penalty_clauses",    None)),
+            ("Delivery Terms",   getattr(po, "delivery_terms",     None)),
+            ("Warranty / Guarantee", getattr(po, "warranty_terms", None)),
+            ("Special Conditions",   getattr(po, "special_conditions", None)),
+        ]
+        has_tnc = any(v for _, v in tnc_fields)
+        if has_tnc:
+            pdf.ln(2)
+            section_title("Terms & Conditions")
+            for label, value in tnc_fields:
+                if value:
+                    pdf.set_font("Helvetica", "B", 8)
+                    pdf.set_text_color(100, 116, 139)
+                    pdf.cell(0, 5, label.upper(), ln=1)
+                    pdf.set_font("Helvetica", "", 9)
+                    pdf.set_text_color(51, 65, 85)
+                    pdf.multi_cell(0, 5, sanitize(value))
+                    pdf.ln(2)
+        pdf.ln(4)
 
         # Footer
         pdf.set_font("Helvetica", "", 8)
@@ -1271,12 +1331,12 @@ async def admin_site_budget(site_id: str, request: Request, session: AsyncSessio
 
     # Group by category
     from collections import defaultdict
-    grouped = defaultdict(lambda: {"total_budget": 0, "total_spent": 0, "items": []})
+    grouped = defaultdict(lambda: {"total_budget": 0, "total_spent": 0, "budget_list": []})
     for b in budgets_db:
         cat = b.category
         grouped[cat]["total_budget"] += float(b.budget_amount)
         grouped[cat]["total_spent"] += float(b.spent_amount)
-        grouped[cat]["items"].append(b)
+        grouped[cat]["budget_list"].append(b)
 
     total_budget = sum(v["total_budget"] for v in grouped.values())
     total_spent = sum(v["total_spent"] for v in grouped.values())

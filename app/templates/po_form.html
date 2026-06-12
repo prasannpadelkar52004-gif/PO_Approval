@@ -84,10 +84,34 @@
             <textarea name="description" class="form-control" rows="3" required
                       placeholder="Describe what this PO is for and why it's needed…">{{ po.description if po else '' }}</textarea>
           </div>
-          <div class="form-group" style="margin-bottom:0;">
+          <div class="form-group">
             <label class="form-label">Delivery Address <span class="req">*</span></label>
             <textarea name="delivery_address" class="form-control" rows="2" required
                       placeholder="Site address where goods should be delivered…">{{ po.delivery_address if po else '' }}</textarea>
+          </div>
+
+          <hr style="border:none;border-top:1px solid var(--border);margin:8px 0 16px;">
+          <div style="font-size:0.88rem;font-weight:700;color:var(--text-mid);margin-bottom:12px;">Terms &amp; Conditions <span style="font-weight:400;color:var(--text-muted);font-size:0.8rem;">(optional)</span></div>
+
+          <div class="form-group">
+            <label class="form-label">Penalty Clauses</label>
+            <textarea name="penalty_clauses" class="form-control" rows="3"
+              placeholder="e.g. Penalty of 1% per week for delay in delivery, max 10%...">{{ po.penalty_clauses if po and po.penalty_clauses else '' }}</textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Delivery Terms</label>
+            <textarea name="delivery_terms" class="form-control" rows="3"
+              placeholder="e.g. Delivery within 30 days from PO date...">{{ po.delivery_terms if po and po.delivery_terms else '' }}</textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Warranty / Guarantee</label>
+            <textarea name="warranty_terms" class="form-control" rows="3"
+              placeholder="e.g. 12 months warranty from date of delivery...">{{ po.warranty_terms if po and po.warranty_terms else '' }}</textarea>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">Special Conditions</label>
+            <textarea name="special_conditions" class="form-control" rows="3"
+              placeholder="Any other special terms and conditions...">{{ po.special_conditions if po and po.special_conditions else '' }}</textarea>
           </div>
         </div>
       </div>
@@ -236,5 +260,7 @@ function prepareSubmit(event) {
 
 // DOM is ready since this script runs after body
 renderItems();
+
+
 </script>
 {% endblock %}

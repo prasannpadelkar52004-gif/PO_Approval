@@ -71,21 +71,32 @@ class POService:
 
         grand_total = subtotal + gst_total
 
-       # Dynamic levels based on site approvers + MD Owner as final
-        required_levels = 4  # default
+        # Dynamic levels based on site approvers present + MD Owner as final
+        required_levels = 2  # default: L1 + MD
         if getattr(data, 'site_id', None):
-            from app.models.models import User as _User
+            from app.models.models import User as _User, UserRole as _UserRole
             from uuid import UUID as _UUID
-            _approver_roles = ['L1_APPROVER','L2_APPROVER','L3_APPROVER','L4_APPROVER','FINANCE']
-            _site_approvers = (await session.execute(
-                select(_User).where(
-                    _User.site_id == _UUID(str(data.site_id)),
-                    _User.is_active == True,
-                    _User.role.in_(_approver_roles)
-                )
-            )).scalars().all()
-            # +1 for MD Owner as final level
-            required_levels = len(_site_approvers) + 1 if _site_approvers else 4
+            # Count distinct roles present for this site (in order)
+            _ordered_roles = [
+                _UserRole.L1_APPROVER,
+                _UserRole.L2_APPROVER,
+                _UserRole.L3_APPROVER,
+                _UserRole.L4_APPROVER,
+                _UserRole.FINANCE,
+            ]
+            _levels_with_approvers = 0
+            for _role in _ordered_roles:
+                _count = (await session.execute(
+                    select(_User).where(
+                        _User.site_id == _UUID(str(data.site_id)),
+                        _User.is_active == True,
+                        _User.role == _role,
+                    )
+                )).scalars().first()
+                if _count:
+                    _levels_with_approvers += 1
+            # +1 for MD Owner as final level always
+            required_levels = _levels_with_approvers + 1 if _levels_with_approvers else 2
         po_number = await POService.generate_po_number(session)
 
         # Check budget if site_id provided
@@ -123,6 +134,10 @@ class POService:
             exceeds_budget=exceeds_budget,
             description=data.description,
             delivery_address=data.delivery_address,
+            penalty_clauses=getattr(data, "penalty_clauses", None),
+            delivery_terms=getattr(data, "delivery_terms", None),
+            warranty_terms=getattr(data, "warranty_terms", None),
+            special_conditions=getattr(data, "special_conditions", None),
             required_by=data.required_by,
             payment_terms=data.payment_terms,
             priority=data.priority,

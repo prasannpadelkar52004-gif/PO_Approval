@@ -38,7 +38,8 @@ def _base(content):
       <p style="color:#888;font-size:12px">Automated notification. Do not reply.</p>
     </div></body></html>"""
 
-def _card(po_number, vendor, amount, category, requester, url):
+def _card(po_number, vendor, amount, category, requester, url, site=None):
+    site_row = f"<tr><td><b>Site:</b> {site}</td><td></td></tr>" if site else ""
     return f"""<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;margin:16px 0">
     <a href="{url}" style="color:#2563EB;font-family:monospace;font-weight:700">{po_number}</a>
     <table style="width:100%;margin-top:12px;font-size:0.85rem"><tr>
@@ -46,7 +47,7 @@ def _card(po_number, vendor, amount, category, requester, url):
     </tr><tr>
       <td><b>Requester:</b> {requester}</td>
       <td><b>Amount:</b> <span style="color:#2563EB;font-weight:800">Rs.{float(amount):,.2f}</span></td>
-    </tr></table></div>"""
+    </tr>{site_row}</table></div>"""
 
 def _btn(text, url, color="#2563EB"):
     return f'<p style="text-align:center"><a href="{url}" style="background:{color};color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">{text}</a></p>'
@@ -59,9 +60,14 @@ async def _get_po(po_id):
     engine = create_async_engine(settings.DATABASE_URL)
     S = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with S() as s:
+        from sqlalchemy.orm import selectinload as _sil
         r = await s.execute(select(PurchaseOrder).where(PurchaseOrder.id == po_id)
-            .options(selectinload(PurchaseOrder.vendor), selectinload(PurchaseOrder.requester),
-                     selectinload(PurchaseOrder.audit_logs)))
+            .options(
+                _sil(PurchaseOrder.vendor),
+                _sil(PurchaseOrder.requester),
+                _sil(PurchaseOrder.audit_logs),
+                _sil(PurchaseOrder.site),
+            ))
         return r.scalar_one_or_none()
 
 async def _get_all_approvers():
@@ -79,12 +85,13 @@ async def _get_all_approvers():
         ))
         return r.scalars().all()
 
-async def _get_approvers_for_level(level):
-    """Get approvers for a specific level only."""
+async def _get_approvers_for_level(level, site_id=None):
+    """Get approvers for a specific level, optionally filtered by site."""
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy import select
     from app.models.models import User, UserRole
+    from uuid import UUID
     roles = {
         1: UserRole.L1_APPROVER,
         2: UserRole.L2_APPROVER,
@@ -99,7 +106,22 @@ async def _get_approvers_for_level(level):
     engine = create_async_engine(settings.DATABASE_URL)
     S = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with S() as s:
-        r = await s.execute(select(User).where(User.role == role, User.is_active == True))
+        q = select(User).where(User.role == role, User.is_active == True)
+        if site_id:
+            # Try site-specific first
+            site_uuid = UUID(str(site_id)) if not isinstance(site_id, UUID) else site_id
+            r = await s.execute(q.where(User.site_id == site_uuid))
+            approvers = r.scalars().all()
+            # Fall back to approvers with no site assigned (global approvers)
+            if not approvers:
+                r = await s.execute(q.where(User.site_id == None))
+                approvers = r.scalars().all()
+            # For MD_OWNER level, also include MD owners from any site
+            if not approvers and role == UserRole.MD_OWNER:
+                r = await s.execute(select(User).where(User.role == role, User.is_active == True))
+                approvers = r.scalars().all()
+            return approvers
+        r = await s.execute(q)
         return r.scalars().all()
 
 
@@ -114,7 +136,7 @@ async def send_po_created_email(ctx, po_id: str) -> None:
     body = f"""<h2>PO Created Successfully</h2>
     <p>Hello <b>{po.requester.full_name}</b>,</p>
     <p>Your Purchase Order has been saved as <b>Draft</b>. Submit it for approval when ready.</p>
-    {_card(po.po_number, po.vendor.name, po.total_amount, po.po_category, po.requester.full_name, url)}
+    {_card(po.po_number, po.vendor.name, po.total_amount, po.po_category, po.requester.full_name, url, site=po.site.name if po.site else None)}
     {_btn("View and Submit PO", url)}"""
     await send_email(po.requester.email, f"PO {po.po_number} Created", _base(body))
     logger.info("PO created email -> %s", po.requester.email)
@@ -127,7 +149,7 @@ async def send_approval_request_email(ctx, po_id: str, level: int) -> None:
         logger.error("PO not found: %s", po_id)
         return
 
-    approvers = await _get_approvers_for_level(level)
+    approvers = await _get_approvers_for_level(level, site_id=getattr(po, "site_id", None))
     if not approvers:
         logger.warning("No active L%d approvers found for PO %s", level, po_id)
         return
@@ -148,7 +170,7 @@ async def send_approval_request_email(ctx, po_id: str, level: int) -> None:
         <h2 style="color:#2563EB;">Action Required: Your Approval Needed</h2>
         <p>Hello <strong>{approver.full_name}</strong>,</p>
         <p>A Purchase Order is now at your level (<strong>{label}</strong>) and requires your approval.</p>
-        {_card(po.po_number, po.vendor.name, po.total_amount, po.po_category, po.requester.full_name, url)}
+        {_card(po.po_number, po.vendor.name, po.total_amount, po.po_category, po.requester.full_name, url, site=po.site.name if po.site else None)}
         {_btn("Review and Approve PO", url, "#2563EB")}
         """
         await send_email(
@@ -193,7 +215,7 @@ async def send_status_update_email(ctx, po_id: str, action: str, new_status: str
     body = f"""<h2 style="color:{color}">{title}</h2>
     <p>Hello <b>{po.requester.full_name}</b>,</p>
     <p>{msg}</p>
-    {_card(po.po_number, po.vendor.name, po.total_amount, po.po_category, po.requester.full_name, url)}
+    {_card(po.po_number, po.vendor.name, po.total_amount, po.po_category, po.requester.full_name, url, site=po.site.name if po.site else None)}
     {cb}{_btn(btn, url, color)}"""
     await send_email(po.requester.email, subj, _base(body))
 
@@ -203,7 +225,7 @@ async def send_status_update_email(ctx, po_id: str, action: str, new_status: str
         body_approver = f"""<h2 style="color:{color}">{title}</h2>
         <p>Hello <b>{approver.full_name}</b>,</p>
         <p>Status update on PO: {msg}</p>
-        {_card(po.po_number, po.vendor.name, po.total_amount, po.po_category, po.requester.full_name, url)}
+        {_card(po.po_number, po.vendor.name, po.total_amount, po.po_category, po.requester.full_name, url, site=po.site.name if po.site else None)}
         {cb}{_btn("View PO Details", url, color)}"""
         await send_email(approver.email, subj, _base(body_approver))
 
