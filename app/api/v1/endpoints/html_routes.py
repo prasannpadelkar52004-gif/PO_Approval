@@ -321,11 +321,12 @@ async def new_po_form(request: Request, session: AsyncSession = Depends(get_sess
     projects    = (await session.execute(select(Project).where(Project.is_active == True))).scalars().all()
 
 
-    # Build budget subcategories and remaining for the form
+    # Build budget subcategories and remaining for the form — filtered by user's site
     from app.models.models import BudgetCategory as _BC
-    _budget_cats = (await session.execute(
-        select(_BC).where(_BC.is_active == True)
-    )).scalars().all()
+    _bc_query = select(_BC).where(_BC.is_active == True)
+    if user.site_id:
+        _bc_query = _bc_query.where(_BC.site_id == user.site_id)
+    _budget_cats = (await session.execute(_bc_query)).scalars().all()
     _budget_subcategories = {}
     _budget_remaining = {}
     for _bc in _budget_cats:
@@ -337,11 +338,12 @@ async def new_po_form(request: Request, session: AsyncSession = Depends(get_sess
         _rem = float(_bc.budget_amount - _bc.spent_amount)
         _budget_remaining[_key] = _budget_remaining.get(_key, 0) + _rem
 
-    # Build budget subcategories and remaining for the form
+    # Build budget subcategories and remaining for the form — filtered by user's site
     from app.models.models import BudgetCategory as _BC
-    _budget_cats = (await session.execute(
-        select(_BC).where(_BC.is_active == True)
-    )).scalars().all()
+    _bc_query = select(_BC).where(_BC.is_active == True)
+    if user.site_id:
+        _bc_query = _bc_query.where(_BC.site_id == user.site_id)
+    _budget_cats = (await session.execute(_bc_query)).scalars().all()
     _budget_subcategories = {}
     _budget_remaining = {}
     for _bc in _budget_cats:
@@ -824,11 +826,12 @@ async def edit_po_form(
     ]
 
 
-    # Build budget subcategories and remaining for the form
+    # Build budget subcategories and remaining for the form — filtered by user's site
     from app.models.models import BudgetCategory as _BC
-    _budget_cats = (await session.execute(
-        select(_BC).where(_BC.is_active == True)
-    )).scalars().all()
+    _bc_query = select(_BC).where(_BC.is_active == True)
+    if user.site_id:
+        _bc_query = _bc_query.where(_BC.site_id == user.site_id)
+    _budget_cats = (await session.execute(_bc_query)).scalars().all()
     _budget_subcategories = {}
     _budget_remaining = {}
     for _bc in _budget_cats:

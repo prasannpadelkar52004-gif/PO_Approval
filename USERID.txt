@@ -1,15 +1,11 @@
 This creates 6 test users — all with password Test@1234
-requester1@peei.com
-requester2@peei.com
-l1approver@peei.com
-l2approver@peei.com
-l3approver@peei.com
-finance@peei.com
-
 saurabhkadam1820@gmail.com
 salunkhemayur381@gmail.com
 padelkarprasann@gmail.com
 kartikkeny.1324@gmail.com
 siddheshjadhav901@gmail.com
 hrishi.319@gmail.com
+pruthvikarpe@gmail.com
+jadhavganpya@gmail.com
+kanaujiyanisha61@gmail.com
 admin@yourcompany.com = changeme123
