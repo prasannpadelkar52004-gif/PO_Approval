@@ -57,8 +57,8 @@
         <tbody>
           {% for po in recent_pos %}
           <tr style="cursor:pointer" onclick="window.location='/pos/{{ po['id'] }}'">
-            <td><span class="td-mono">{{ po['po_number'] }}</span></td>
-            <td>{{ po['vendor_name'] }}</td>
+            <td><span class="td-mono">{{ po['po_number'] }}</span>{% if po.get('site_name') %} <span style="font-size:0.7rem;background:#EFF6FF;color:#2563EB;border-radius:4px;padding:1px 5px;">{{ po['site_name'] }}</span>{% endif %}</td>
+            <td>{{ po['vendor_name'] }}{% if po.get('site_name') %} <span style="font-size:0.72rem;background:#EFF6FF;color:#2563EB;border:1px solid #BFDBFE;border-radius:4px;padding:1px 6px;font-weight:600;">📍 {{ po['site_name'] }}</span>{% endif %}</td>
             <td class="font-bold">₹{{ "{:,.0f}".format(po['total_amount']) }}</td>
             <td><span class="badge badge-{{ po['status'] }}">{{ po['status'].replace('_',' ').title() }}</span></td>
             <td><span class="badge badge-{{ po['priority'] }}">{{ po['priority'].title() }}</span></td>
@@ -89,9 +89,24 @@
          onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background=''">
         <div class="flex justify-between items-center">
           <span class="td-mono" style="font-size:0.8rem;">{{ po['po_number'] }}</span>
+          {% if po.get('site_name') %}
+          <span style="margin-left:8px;font-size:0.72rem;background:#EFF6FF;color:#2563EB;border:1px solid #BFDBFE;border-radius:4px;padding:1px 6px;font-weight:600;">
+            {{ po['site_name'] }}
+          </span>
+          {% endif %}
+          {% if po.get('site_name') %}
+          <span style="margin-left:8px;font-size:0.72rem;background:#EFF6FF;color:#2563EB;border:1px solid #BFDBFE;border-radius:4px;padding:1px 6px;font-weight:600;">
+            {{ po['site_name'] }}
+          </span>
+          {% endif %}
           <span class="badge badge-{{ po['priority'] }}">{{ po['priority'] }}</span>
         </div>
-        <div style="font-size:0.84rem;font-weight:500;color:var(--text-mid);margin:3px 0;">{{ po['vendor_name'] }}</div>
+        <div style="font-size:0.84rem;font-weight:500;color:var(--text-mid);margin:3px 0;">
+          {{ po['vendor_name'] }}{% if po.get('site_name') %} <span style="font-size:0.72rem;background:#EFF6FF;color:#2563EB;border:1px solid #BFDBFE;border-radius:4px;padding:1px 6px;font-weight:600;">📍 {{ po['site_name'] }}</span>{% endif %}
+          {% if po.get('site_name') %}
+          <span style="margin-left:6px;font-size:0.72rem;background:#F0FDF4;color:#16A34A;border:1px solid #BBF7D0;border-radius:4px;padding:1px 6px;">📍 {{ po['site_name'] }}</span>
+          {% endif %}
+        </div>
         <div class="flex justify-between items-center mt-1">
           <span style="font-size:0.8rem;color:var(--text-muted);">₹{{ "{:,.0f}".format(po['total_amount']) }}</span>
           <span class="badge badge-{{ po['status'] }}" style="font-size:0.68rem;">L{{ po['current_level'] }}</span>

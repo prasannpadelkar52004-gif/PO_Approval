@@ -104,21 +104,52 @@ class POService:
         budget_category_id = None
         if hasattr(data, 'site_id') and data.site_id:
             from app.models.models import BudgetCategory
-            from sqlalchemy import select as _select
-            budget_q = _select(BudgetCategory).where(
-                BudgetCategory.site_id == data.site_id,
-                BudgetCategory.category == data.po_category,
-                BudgetCategory.is_active == True,
-            )
+            from sqlalchemy import select as _select, func as _func
+            from uuid import UUID as _BUUID
+
             if hasattr(data, 'sub_category') and data.sub_category:
-                budget_q = budget_q.where(BudgetCategory.sub_category == data.sub_category)
-            budget_result = await session.execute(budget_q)
-            budget_cat = budget_result.scalars().first()
-            if budget_cat:
-                budget_category_id = budget_cat.id
-                remaining = budget_cat.budget_amount - budget_cat.spent_amount
-                if grand_total > remaining:
-                    exceeds_budget = True
+                # Specific sub-category budget check
+                budget_q = _select(BudgetCategory).where(
+                    BudgetCategory.site_id == _BUUID(str(data.site_id)),
+                    BudgetCategory.category == data.po_category,
+                    BudgetCategory.sub_category == data.sub_category,
+                    BudgetCategory.is_active == True,
+                )
+                budget_result = await session.execute(budget_q)
+                budget_cat = budget_result.scalars().first()
+                if budget_cat:
+                    budget_category_id = budget_cat.id
+                    remaining = budget_cat.budget_amount - budget_cat.spent_amount
+                    if grand_total > remaining:
+                        exceeds_budget = True
+            else:
+                # No sub-category — check total budget for entire category
+                agg_q = _select(
+                    _func.sum(BudgetCategory.budget_amount).label("total_budget"),
+                    _func.sum(BudgetCategory.spent_amount).label("total_spent"),
+                ).where(
+                    BudgetCategory.site_id == _BUUID(str(data.site_id)),
+                    BudgetCategory.category == data.po_category,
+                    BudgetCategory.is_active == True,
+                )
+                agg_result = await session.execute(agg_q)
+                agg = agg_result.first()
+                if agg and agg.total_budget:
+                    total_budget = float(agg.total_budget or 0)
+                    total_spent = float(agg.total_spent or 0)
+                    remaining = total_budget - total_spent
+                    if float(grand_total) > remaining:
+                        exceeds_budget = True
+                        # Use first active budget category for reference
+                        first_cat_q = _select(BudgetCategory).where(
+                            BudgetCategory.site_id == _BUUID(str(data.site_id)),
+                            BudgetCategory.category == data.po_category,
+                            BudgetCategory.is_active == True,
+                        ).limit(1)
+                        first_cat_result = await session.execute(first_cat_q)
+                        first_cat = first_cat_result.scalars().first()
+                        if first_cat:
+                            budget_category_id = first_cat.id
 
         from uuid import UUID as _UUID
         po = PurchaseOrder(
@@ -166,6 +197,22 @@ class POService:
 
         await session.commit()
         await session.refresh(po)
+
+        # ── Notify MD if budget exceeded ──────────────────────────────────
+        if po.exceeds_budget:
+            try:
+                from arq import create_pool
+                from arq.connections import RedisSettings
+                from app.core.config import settings as _settings
+                _url = _settings.REDIS_URL.replace("redis://", "")
+                _host, _port = _url.split(":") if ":" in _url else (_url, "6379")
+                redis = await create_pool(RedisSettings(host=_host, port=int(_port)))
+                await redis.enqueue_job("send_budget_exceed_email", str(po.id))
+                await redis.aclose()
+            except Exception as _e:
+                import logging
+                logging.getLogger(__name__).warning("Budget exceed email failed: %s", _e)
+
         return po
 
     # ── Submit PO ─────────────────────────────────────────────────────────────
@@ -180,6 +227,8 @@ class POService:
             raise PermissionError("Only the requester can submit this PO")
         if po.status not in (POStatus.DRAFT, POStatus.RETURNED):
             raise ValueError(f"Cannot submit PO in status: {po.status}")
+        if po.exceeds_budget and not getattr(po, "budget_authorized", False):
+            raise PermissionError("Budget exceeded — waiting for MD authorization before submission")
 
         sm = POStateMachine(po)
         prev = po.status
@@ -237,7 +286,7 @@ class POService:
             trigger = ApprovalEngine.get_next_trigger(po.status, po.required_levels)
             getattr(sm, trigger)()
             po.status = sm.current_state
-            po.current_level = current_level
+            po.current_level = current_level + 1
             audit_action = AuditAction.APPROVED
 
             if po.status == POStatus.APPROVED:

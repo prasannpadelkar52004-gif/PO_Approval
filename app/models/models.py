@@ -219,7 +219,9 @@ class PurchaseOrder(TimestampMixin, table=True):
     sub_category:     Optional[str]  = Field(default=None, max_length=100)
     site_id:          Optional[UUID] = Field(default=None, foreign_key="sites.id")
     budget_category_id: Optional[UUID] = Field(default=None, foreign_key="budget_categories.id")
-    exceeds_budget:   bool           = Field(default=False)
+    exceeds_budget:        bool           = Field(default=False)
+    budget_authorized:     bool           = Field(default=False)
+    budget_authorized_at:  Optional[datetime] = Field(default=None)
     description:      str            = Field(sa_column=Column(Text))
     delivery_address: str            = Field(sa_column=Column(Text))
     required_by:      datetime

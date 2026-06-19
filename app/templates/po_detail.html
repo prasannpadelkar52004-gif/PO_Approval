@@ -13,6 +13,11 @@
 {% endblock %}
 
 {% block topbar_actions %}
+{% if request.query_params.get('error') == 'budget_exceeded' %}
+<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:10px 16px;color:#DC2626;font-size:0.88rem;font-weight:600;margin-bottom:8px;">
+  ⚠️ Cannot submit — Budget exceeded. Waiting for MD authorization.
+</div>
+{% endif %}
   {% if po.status == 'draft' and po.requester_id == current_user.id %}
     <button class="btn btn-secondary btn-sm" onclick="window.location='/pos/{{ po.id }}/edit'">Edit</button>
     <form method="POST" action="/pos/{{ po.id }}/submit" style="display:inline;">
@@ -37,7 +42,35 @@
   <div style="display:flex;flex-direction:column;gap:20px;">
 
     <!-- PO header info -->
-    <div class="card">
+    {% if po.exceeds_budget %}
+<div style="background:#FEF2F2;border:2px solid #FECACA;border-radius:12px;padding:16px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+  <div>
+    <div style="font-size:0.95rem;font-weight:700;color:#DC2626;">⚠️ Budget Exceeded</div>
+    {% if po.budget_authorized %}
+    <div style="font-size:0.84rem;color:#16A34A;margin-top:4px;">
+      ✅ Extra spending authorized by MD on {{ po.budget_authorized_at.strftime('%d %b %Y') if po.budget_authorized_at else 'N/A' }}
+      {% if po.status.value in ['draft', 'DRAFT'] %}
+      — You can now submit this PO for approval.
+      {% endif %}
+    </div>
+    {% else %}
+    <div style="font-size:0.84rem;color:#DC2626;margin-top:4px;">
+      This PO exceeds the available budget. Waiting for MD authorization before it can be submitted.
+    </div>
+    {% endif %}
+  </div>
+  {% if not po.budget_authorized and current_user.role in ['md_owner', 'MD_OWNER', 'admin', 'ADMIN'] %}
+  <form method="POST" action="/pos/{{ po.id }}/authorize-budget" style="flex-shrink:0;">
+    <button type="submit" class="btn btn-danger" style="white-space:nowrap;"
+      onclick="return confirm('Authorize extra budget spending for this PO?')">
+      ✓ Authorize Extra Spend
+    </button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
       <div class="card-header">
         <span class="card-title">PO Details</span>
       </div>
@@ -218,7 +251,9 @@
     <div class="card">
       <div class="card-header"><span class="card-title">Approval Progress</span></div>
       <div class="card-body">
-        {% set level_labels = {1:'L1 — Site Manager', 2:'L2 — Project Manager', 3:'L3 — GM / Finance', 4:'L4 — Approver', 5:'L5 — Finance', 6:'L6 — MD / Owner'} %}
+        {% set level_labels = {1:'L1 — Site Manager', 2:'L2 — Project Manager', 3:'L3 — GM / Finance', 4:'L4 — Senior Manager', 5:'L5 — Finance', 6:'MD / Owner'} %}
+        {# Override last level label to MD/Owner since MD always approves last #}
+        {% set _last_label = 'MD / Owner' %}
         {% set status_order = ['draft','submitted','l1_approved','l2_approved','l3_approved','l4_approved','l5_approved','approved'] %}
         {% set current_idx = status_order.index(po.status) if po.status in status_order else 0 %}
 
@@ -239,7 +274,7 @@
           </div>
           <div>
             <div style="font-size:0.84rem;font-weight:{% if done or active %}600{% else %}400{% endif %};color:{% if done %}var(--green){% elif active %}var(--blue){% else %}var(--text-muted){% endif %};">
-              {{ level_labels.get(level, 'Level ' ~ level) }}
+              {{ _last_label if level == po.required_levels else level_labels.get(level, 'Level ' ~ level) }}
             </div>
             {% if done %}
             {% for step in po.approval_steps if step.level == level %}
@@ -269,15 +304,18 @@
     </div>
 
     <!-- Approver action panel (HTMX-powered) -->
+{% set po_status = po.status.value | lower if po.status.value is defined else po.status | lower %}
+{% set user_role = current_user.role.value | lower if current_user.role.value is defined else current_user.role | lower %}
+{% set level_status_map = {1: 'submitted', 2: 'l1_approved', 3: 'l2_approved', 4: 'l3_approved', 5: 'l4_approved', 6: 'l5_approved'} %}
+{% set md_trigger_status = level_status_map[po.required_levels] if po.required_levels in level_status_map else 'l5_approved' %}
 {% set can_approve = (
-  (po.status == 'submitted'   and current_user.role in ['l1_approver', 'L1_APPROVER']) or
-  (po.status == 'l1_approved' and current_user.role in ['l2_approver', 'L2_APPROVER']) or
-  (po.status == 'l2_approved' and current_user.role in ['l3_approver', 'L3_APPROVER']) or
-  (po.status == 'l3_approved' and current_user.role in ['l4_approver', 'L4_APPROVER']) or
-  (po.status == 'l4_approved' and current_user.role in ['finance', 'FINANCE']) or
-  (po.status == 'l5_approved' and current_user.role in ['md_owner', 'MD_OWNER']) or
-  (po.status in ['l3_approved', 'l4_approved', 'l5_approved'] and current_user.role in ['md_owner', 'MD_OWNER']) or
-  current_user.role in ['admin', 'ADMIN']
+  (po_status == 'submitted'   and user_role == 'l1_approver') or
+  (po_status == 'l1_approved' and user_role == 'l2_approver') or
+  (po_status == 'l2_approved' and user_role == 'l3_approver') or
+  (po_status == 'l3_approved' and user_role == 'l4_approver') or
+  (po_status == 'l4_approved' and user_role == 'finance') or
+  (po_status == md_trigger_status and user_role == 'md_owner') or
+  user_role == 'admin'
 ) and po.requester_id != current_user.id %}
 
     {% if can_approve %}

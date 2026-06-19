@@ -113,6 +113,7 @@ async def dashboard(request: Request, session: AsyncSession = Depends(get_sessio
         .options(
             selectinload(PurchaseOrder.requester),
             selectinload(PurchaseOrder.vendor),
+            selectinload(PurchaseOrder.site),
         )
         .order_by(desc(PurchaseOrder.created_at))
         .limit(8)
@@ -140,8 +141,27 @@ async def dashboard(request: Request, session: AsyncSession = Depends(get_sessio
 
     # ── Pending approvals ─────────────────────────────────────────────────────
     if pending_statuses:
-        pdq = (select(PurchaseOrder).options(selectinload(PurchaseOrder.vendor)).where(PurchaseOrder.status.in_(pending_statuses)).order_by(desc(PurchaseOrder.created_at)).limit(10))
-        if user.role not in [UserRole.ADMIN, UserRole.MD_OWNER] and user.site_id:
+        pdq = (select(PurchaseOrder).options(selectinload(PurchaseOrder.vendor), selectinload(PurchaseOrder.site)).where(PurchaseOrder.status.in_(pending_statuses)).order_by(desc(PurchaseOrder.created_at)).limit(10))
+        if user.role == UserRole.MD_OWNER:
+            # MD only sees POs where status matches their final approval level
+            # i.e. po.status == level_status_map[po.required_levels]
+            from sqlalchemy import case
+            level_status_map = {
+                1: POStatus.SUBMITTED,
+                2: POStatus.L1_APPROVED,
+                3: POStatus.L2_APPROVED,
+                4: POStatus.L3_APPROVED,
+                5: POStatus.L4_APPROVED,
+                6: POStatus.L5_APPROVED,
+            }
+            from sqlalchemy import or_ as _or
+            pdq = pdq.where(_or(
+                *[
+                    (PurchaseOrder.required_levels == lvl) & (PurchaseOrder.status == st)
+                    for lvl, st in level_status_map.items()
+                ]
+            ))
+        elif user.role not in [UserRole.ADMIN, UserRole.MD_OWNER] and user.site_id:
             pdq = pdq.where(PurchaseOrder.site_id == user.site_id)
         p = await session.execute(pdq)
         pending_db = p.scalars().all()
@@ -199,6 +219,7 @@ async def dashboard(request: Request, session: AsyncSession = Depends(get_sessio
             "current_level":po.current_level,
             "vendor_name":  po.vendor.name if po.vendor else "—",
             "requester_id": str(po.requester_id),
+            "site_name":    po.site.name if po.site else None,
         }
         if with_requester:
             d["requester_name"] = po.requester.full_name if po.requester else "—"
@@ -239,6 +260,7 @@ async def po_list(
         .options(
             selectinload(PurchaseOrder.requester),
             selectinload(PurchaseOrder.vendor),
+            selectinload(PurchaseOrder.site),
         )
         .order_by(desc(PurchaseOrder.created_at))
         .limit(100)
@@ -247,7 +269,7 @@ async def po_list(
     # Site-based filtering — MD_OWNER sees all, others see only their site
     if user.role == UserRole.REQUESTER:
         q = q.where(PurchaseOrder.requester_id == user.id)
-    elif user.role != UserRole.MD_OWNER and user.role != UserRole.ADMIN:
+    elif user.role != UserRole.MD_OWNER and user.role not in [UserRole.ADMIN, UserRole.MD_OWNER]:
         if user.site_id:
             q = q.where(PurchaseOrder.site_id == user.site_id)
 
@@ -272,6 +294,7 @@ async def po_list(
         "requester_name":p.requester.full_name if p.requester else "—",
         "requester_id":  str(p.requester_id),
         "vendor_name":   p.vendor.name if p.vendor else "—",
+        "site_name":     p.site.name if p.site else None,
     } for p in pos_db]
 
     return templates.TemplateResponse("po_list.html", {
@@ -297,6 +320,38 @@ async def new_po_form(request: Request, session: AsyncSession = Depends(get_sess
     departments = (await session.execute(select(Department).where(Department.is_active == True))).scalars().all()
     projects    = (await session.execute(select(Project).where(Project.is_active == True))).scalars().all()
 
+
+    # Build budget subcategories and remaining for the form
+    from app.models.models import BudgetCategory as _BC
+    _budget_cats = (await session.execute(
+        select(_BC).where(_BC.is_active == True)
+    )).scalars().all()
+    _budget_subcategories = {}
+    _budget_remaining = {}
+    for _bc in _budget_cats:
+        if _bc.category not in _budget_subcategories:
+            _budget_subcategories[_bc.category] = []
+        if _bc.sub_category and _bc.sub_category not in _budget_subcategories[_bc.category]:
+            _budget_subcategories[_bc.category].append(_bc.sub_category)
+        _key = f"{_bc.category}::{_bc.sub_category}" if _bc.sub_category else _bc.category
+        _rem = float(_bc.budget_amount - _bc.spent_amount)
+        _budget_remaining[_key] = _budget_remaining.get(_key, 0) + _rem
+
+    # Build budget subcategories and remaining for the form
+    from app.models.models import BudgetCategory as _BC
+    _budget_cats = (await session.execute(
+        select(_BC).where(_BC.is_active == True)
+    )).scalars().all()
+    _budget_subcategories = {}
+    _budget_remaining = {}
+    for _bc in _budget_cats:
+        if _bc.category not in _budget_subcategories:
+            _budget_subcategories[_bc.category] = []
+        if _bc.sub_category and _bc.sub_category not in _budget_subcategories[_bc.category]:
+            _budget_subcategories[_bc.category].append(_bc.sub_category)
+        _key = f"{_bc.category}::{_bc.sub_category}" if _bc.sub_category else _bc.category
+        _rem = float(_bc.budget_amount - _bc.spent_amount)
+        _budget_remaining[_key] = _budget_remaining.get(_key, 0) + _rem
     return templates.TemplateResponse("po_form.html", {
         "request":        request,
         "current_user":   user,
@@ -306,6 +361,10 @@ async def new_po_form(request: Request, session: AsyncSession = Depends(get_sess
         "vendors":        vendors,
         "departments":    departments,
         "projects":       projects,
+        "budget_subcategories": _budget_subcategories,
+        "budget_remaining": _budget_remaining,
+        "budget_subcategories": _budget_subcategories,
+        "budget_remaining": _budget_remaining,
         "today":          date.today().isoformat(),
         "existing_items": None,
     })
@@ -328,12 +387,27 @@ async def po_detail(
     if not po:
         raise HTTPException(404, "PO not found")
 
+    # Build site approval chain for display
+    from app.models.models import UserRole as _UR
+    _site_chain = []
+    if po.site_id:
+        for _r in [_UR.L1_APPROVER, _UR.L2_APPROVER, _UR.L3_APPROVER, _UR.L4_APPROVER, _UR.FINANCE]:
+            _has = (await session.execute(
+                select(User).where(User.site_id == po.site_id, User.role == _r, User.is_active == True)
+            )).scalars().first()
+            if _has:
+                _site_chain.append(_r.value)
+        _site_chain.append(_UR.MD_OWNER.value)
+    else:
+        _site_chain = [_UR.L1_APPROVER.value, _UR.MD_OWNER.value]
+
     return templates.TemplateResponse("po_detail.html", {
-        "request":       request,
-        "current_user":  user,
-        "active_page":   "pos",
-        "pending_count": 0,
-        "po":            po,
+        "request":            request,
+        "current_user":       user,
+        "active_page":        "pos",
+        "pending_count":      0,
+        "po":                 po,
+        "site_approval_chain": _site_chain,
     })
 
 
@@ -482,6 +556,13 @@ async def submit_po(
         raise HTTPException(404, "PO not found")
     try:
         await POService.submit_po(session, po, user)
+    except PermissionError as e:
+        import traceback
+        print("SUBMIT ERROR:", traceback.format_exc())
+        err = str(e)
+        if "budget" in err.lower():
+            return RedirectResponse(f"/pos/{po_id}?error=budget_exceeded", status_code=302)
+        return RedirectResponse(f"/pos/{po_id}?error=permission", status_code=302)
     except Exception as e:
         import traceback
         print("SUBMIT ERROR:", traceback.format_exc())
@@ -583,7 +664,7 @@ async def approvals_page(
         UserRole.FINANCE:     [POStatus.L4_APPROVED],
     }.get(user.role, [])
     if pending_statuses:
-        apq = (select(PurchaseOrder).options(selectinload(PurchaseOrder.requester),selectinload(PurchaseOrder.vendor),selectinload(PurchaseOrder.department)).where(PurchaseOrder.status.in_(pending_statuses)).order_by(desc(PurchaseOrder.created_at)))
+        apq = (select(PurchaseOrder).options(selectinload(PurchaseOrder.requester),selectinload(PurchaseOrder.vendor),selectinload(PurchaseOrder.department),selectinload(PurchaseOrder.site)).where(PurchaseOrder.status.in_(pending_statuses)).order_by(desc(PurchaseOrder.created_at)))
         if user.role not in [UserRole.ADMIN, UserRole.MD_OWNER] and user.site_id:
             apq = apq.where(PurchaseOrder.site_id == user.site_id)
         result = await session.execute(apq)
@@ -598,6 +679,7 @@ async def approvals_page(
         "vendor_name": p.vendor.name if p.vendor else "—",
         "department_name": p.department.name if p.department else "—",
         "current_level": p.current_level, "required_levels": p.required_levels,
+        "site_name": p.site.name if p.site else None,
     } for p in pos_db]
     return templates.TemplateResponse("approvals.html", {
         "request": request, "current_user": user, "active_page": "approvals",
@@ -632,7 +714,7 @@ async def admin_users(request: Request, session: AsyncSession = Depends(get_sess
 @router.post("/admin/users/create")
 async def admin_create_user(request: Request, session: AsyncSession = Depends(get_session)):
     user = await get_user_from_cookie(request, session)
-    if not user or user.role != UserRole.ADMIN:
+    if not user or user.role not in [UserRole.ADMIN, UserRole.MD_OWNER]:
         return to_login()
     from passlib.context import CryptContext
     from uuid import uuid4
@@ -657,7 +739,7 @@ async def admin_create_user(request: Request, session: AsyncSession = Depends(ge
 @router.post("/admin/users/{user_id}/toggle")
 async def admin_toggle_user(user_id: str, request: Request, session: AsyncSession = Depends(get_session)):
     current = await get_user_from_cookie(request, session)
-    if not current or current.role != UserRole.ADMIN:
+    if not current or current.role not in [UserRole.ADMIN, UserRole.MD_OWNER]:
         return to_login()
     u = await session.get(User, UUID(user_id))
     if u:
@@ -669,7 +751,7 @@ async def admin_toggle_user(user_id: str, request: Request, session: AsyncSessio
 @router.get("/admin/chains", response_class=HTMLResponse)
 async def admin_chains(request: Request, session: AsyncSession = Depends(get_session)):
     user = await get_user_from_cookie(request, session)
-    if not user or user.role != UserRole.ADMIN:
+    if not user or user.role not in [UserRole.ADMIN, UserRole.MD_OWNER]:
         return to_login()
     from app.models.models import ApprovalChain
     result = await session.execute(select(ApprovalChain).order_by(ApprovalChain.po_category, ApprovalChain.min_amount))
@@ -687,7 +769,7 @@ async def admin_chains(request: Request, session: AsyncSession = Depends(get_ses
 @router.post("/admin/chains/create")
 async def admin_create_chain(request: Request, session: AsyncSession = Depends(get_session)):
     user = await get_user_from_cookie(request, session)
-    if not user or user.role != UserRole.ADMIN:
+    if not user or user.role not in [UserRole.ADMIN, UserRole.MD_OWNER]:
         return to_login()
     from app.models.models import ApprovalChain
     from decimal import Decimal
@@ -741,6 +823,22 @@ async def edit_po_form(
         for item in po.line_items
     ]
 
+
+    # Build budget subcategories and remaining for the form
+    from app.models.models import BudgetCategory as _BC
+    _budget_cats = (await session.execute(
+        select(_BC).where(_BC.is_active == True)
+    )).scalars().all()
+    _budget_subcategories = {}
+    _budget_remaining = {}
+    for _bc in _budget_cats:
+        if _bc.category not in _budget_subcategories:
+            _budget_subcategories[_bc.category] = []
+        if _bc.sub_category and _bc.sub_category not in _budget_subcategories[_bc.category]:
+            _budget_subcategories[_bc.category].append(_bc.sub_category)
+        _key = f"{_bc.category}::{_bc.sub_category}" if _bc.sub_category else _bc.category
+        _rem = float(_bc.budget_amount - _bc.spent_amount)
+        _budget_remaining[_key] = _budget_remaining.get(_key, 0) + _rem
     return templates.TemplateResponse("po_form.html", {
         "request":        request,
         "current_user":   user,
@@ -750,6 +848,8 @@ async def edit_po_form(
         "vendors":        vendors,
         "departments":    departments,
         "projects":       projects,
+        "budget_subcategories": _budget_subcategories,
+        "budget_remaining": _budget_remaining,
         "today":          date.today().isoformat(),
         "existing_items": existing_items,
     })
@@ -865,6 +965,42 @@ async def edit_po_submit(
 
 
 # ── PDF Download ──────────────────────────────────────────────────────────────
+
+
+
+@router.post("/pos/{po_id}/authorize-budget")
+async def authorize_budget(po_id: str, request: Request, session: AsyncSession = Depends(get_session)):
+    """MD authorizes extra budget spending for a PO."""
+    user = await get_user_from_cookie(request, session)
+    if not user:
+        return to_login()
+    if user.role.value not in ['md_owner', 'MD_OWNER', 'admin', 'ADMIN']:
+        return RedirectResponse(f"/pos/{po_id}", status_code=302)
+
+    po = await session.get(PurchaseOrder, UUID(po_id))
+    if not po:
+        raise HTTPException(404, "PO not found")
+
+    from datetime import datetime as _dt
+    po.budget_authorized = True
+    po.budget_authorized_at = _dt.utcnow()
+    await session.commit()
+
+    # Notify requester
+    try:
+        from arq import create_pool
+        from arq.connections import RedisSettings
+        from app.core.config import settings as _settings
+        _url = _settings.REDIS_URL.replace("redis://", "")
+        _host, _port = _url.split(":") if ":" in _url else (_url, "6379")
+        redis = await create_pool(RedisSettings(host=_host, port=int(_port)))
+        await redis.enqueue_job("send_budget_authorized_email", str(po.id))
+        await redis.aclose()
+    except Exception as _e:
+        import logging
+        logging.getLogger(__name__).warning("Budget authorized email failed: %s", _e)
+
+    return RedirectResponse(f"/pos/{po_id}", status_code=302)
 
 @router.get("/pos/{po_id}/pdf")
 async def download_po_pdf(
@@ -1462,7 +1598,7 @@ async def admin_site_create_user(site_id: str, request: Request, session: AsyncS
 @router.post("/admin/users/{user_id}/change-role")
 async def admin_change_role(user_id: str, request: Request, session: AsyncSession = Depends(get_session)):
     current = await get_user_from_cookie(request, session)
-    if not current or current.role != UserRole.ADMIN:
+    if not current or current.role not in [UserRole.ADMIN, UserRole.MD_OWNER]:
         return to_login()
     form = await request.form()
     u = await session.get(User, UUID(user_id))
@@ -1475,7 +1611,7 @@ async def admin_change_role(user_id: str, request: Request, session: AsyncSessio
 @router.post("/admin/users/{user_id}/change-site")
 async def admin_change_site(user_id: str, request: Request, session: AsyncSession = Depends(get_session)):
     current = await get_user_from_cookie(request, session)
-    if not current or current.role != UserRole.ADMIN:
+    if not current or current.role not in [UserRole.ADMIN, UserRole.MD_OWNER]:
         return to_login()
     form = await request.form()
     u = await session.get(User, UUID(user_id))
@@ -1666,7 +1802,7 @@ async def analytics_page(request: Request, session: AsyncSession = Depends(get_s
     # ── Recent approved POs ───────────────────────────────────────────────────
     recent_q = (
         select(PurchaseOrder)
-        .options(selectinload(PurchaseOrder.vendor), selectinload(PurchaseOrder.requester))
+        .options(selectinload(PurchaseOrder.vendor), selectinload(PurchaseOrder.requester), selectinload(PurchaseOrder.site))
         .where(PurchaseOrder.status == "approved")
         .order_by(desc(PurchaseOrder.approved_at))
         .limit(10)

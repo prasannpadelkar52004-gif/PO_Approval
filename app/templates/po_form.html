@@ -32,11 +32,28 @@
             </div>
             <div class="form-group">
               <label class="form-label">PO Category <span class="req">*</span></label>
-              <select name="po_category" class="form-control" required>
+              <select name="po_category" id="po_category" class="form-control" required onchange="updateSubCategories()">
                 {% for cat in ['material','subcontractor','equipment_rental','office_admin','it_software','capital_expenditure','urgent_emergency'] %}
                 <option value="{{ cat }}" {% if po and po.po_category == cat %}selected{% endif %}>{{ cat.replace('_',' ').title() }}</option>
                 {% endfor %}
               </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Sub-Category <span class="req">*</span></label>
+              <select name="sub_category" id="sub_category" class="form-control" required>
+                <option value="" disabled selected>— Select Sub-Category —</option>
+                {% if budget_subcategories %}
+                  {% for cat, subs in budget_subcategories.items() %}
+                    {% for sub in subs %}
+                    <option value="{{ sub }}" data-category="{{ cat }}"
+                      {% if po and po.sub_category == sub %}selected{% endif %}>
+                      {{ sub }}
+                    </option>
+                    {% endfor %}
+                  {% endfor %}
+                {% endif %}
+              </select>
+              <div class="form-hint" id="budget-hint" style="color:var(--blue);font-size:0.8rem;margin-top:4px;"></div>
             </div>
             <div class="form-group">
               <label class="form-label">Project / Site</label>
@@ -162,10 +179,7 @@
       <div class="card">
         <div class="card-header"><span class="card-title">Submit PO</span></div>
         <div class="card-body" style="display:flex;flex-direction:column;gap:12px;">
-          <div class="alert alert-info" style="margin-bottom:0;">
-            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            The approval level will be determined automatically based on the total amount and category.
-          </div>
+          
           <div style="font-size:0.84rem;color:var(--text-muted);">Grand Total</div>
           <div class="font-mono" style="font-size:1.4rem;font-weight:800;color:var(--blue);" id="grand-total-sidebar">₹0.00</div>
           <button type="submit" name="save_action" value="draft" class="btn btn-secondary" style="width:100%;justify-content:center;">Save as Draft</button>
@@ -183,6 +197,56 @@
 
 {% block scripts %}
 <script>
+// Sub-category filter by category
+var BUDGET_DATA = {{ budget_subcategories | tojson if budget_subcategories else '{}' }};
+var BUDGET_REMAINING = {{ budget_remaining | tojson if budget_remaining else '{}' }};
+
+function updateSubCategories() {
+  var cat = document.getElementById('po_category').value;
+  var subSel = document.getElementById('sub_category');
+  var hint = document.getElementById('budget-hint');
+  if (!subSel) return;
+
+  // Save current value
+  var currentVal = subSel.value;
+
+  // Rebuild options
+  subSel.innerHTML = '<option value="" disabled selected>— Select Sub-Category —</option>';
+  var subs = BUDGET_DATA[cat] || [];
+  subs.forEach(function(sub) {
+    var opt = document.createElement('option');
+    opt.value = sub;
+    opt.textContent = sub;
+    if (sub === currentVal) opt.selected = true;
+    subSel.appendChild(opt);
+  });
+
+  updateBudgetHint();
+}
+
+function updateBudgetHint() {
+  var cat = document.getElementById('po_category').value;
+  var sub = document.getElementById('sub_category').value;
+  var hint = document.getElementById('budget-hint');
+  if (!hint) return;
+
+  var key = sub ? (cat + '::' + sub) : cat;
+  var remaining = BUDGET_REMAINING[key];
+  if (remaining !== undefined) {
+    var color = remaining < 0 ? 'var(--red)' : remaining < 50000 ? 'var(--amber)' : 'var(--green)';
+    hint.style.color = color;
+    hint.textContent = 'Budget remaining: ₹' + Number(remaining).toLocaleString('en-IN', {minimumFractionDigits: 0});
+  } else {
+    hint.textContent = '';
+  }
+}
+
+// Init on page load
+document.addEventListener('DOMContentLoaded', function() {
+  updateSubCategories();
+  document.getElementById('sub_category') && document.getElementById('sub_category').addEventListener('change', updateBudgetHint);
+});
+
 var UNITS = ['nos','kg','mt','sqft','sqm','rmt','lot','litre','bag','box'];
 var GST_RATES = [0, 5, 12, 18, 28];
 var items = {{ (existing_items | tojson if existing_items else '[{"description":"","unit":"nos","qty":1,"rate":0,"gst":18,"total":0}]') | safe }};
@@ -195,6 +259,8 @@ function calcItem(idx) {
   var item = items[idx];
   var amount = item.qty * item.rate;
   item.total = amount + (amount * item.gst / 100);
+  var el = document.getElementById('item-total-' + idx);
+  if (el) el.textContent = fmt(item.total);
 }
 
 function updateTotals() {

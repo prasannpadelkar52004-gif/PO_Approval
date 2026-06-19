@@ -54,7 +54,7 @@
                 <button type="submit" class="btn btn-primary btn-sm">Change</button>
               </form>
               <form method="POST" action="/admin/users/{{ u.id }}/change-site" style="display:flex;gap:4px;">
-                <select name="site_id" class="form-control" style="font-size:0.78rem;padding:4px 8px;height:32px;width:140px;">
+                <select name="site_id" class="form-control" style="font-size:0.78rem;padding:4px 8px;height:32px;min-width:160px;max-width:200px;">
                   <option value="">— No Site —</option>
                   {% for site in sites %}
                   <option value="{{ site.id }}" {% if u.site_code == site.code %}selected{% endif %}>{{ site.code }} — {{ site.name }}</option>

@@ -118,13 +118,17 @@ class ApprovalEngine:
         """Returns (can_approve, reason)."""
         from app.models.models import UserRole
 
-        # Admin can approve anywhere
+        # Cannot approve own PO
+        if user.id == po.requester_id:
+            return False, "You cannot approve your own PO"
+
+        # Admin can approve anywhere at any level
         if user.role.value in ['admin', 'ADMIN']:
             return True, "ok"
 
-        # MD Owner approves at the final level (whatever that is for this PO)
+        # MD Owner — approves as the FINAL level on any PO regardless of site
+        # MD has no site assigned (global role)
         if user.role.value in ['md_owner', 'MD_OWNER']:
-            # Build the expected status at the final level
             level_to_status = {
                 1: POStatus.SUBMITTED,
                 2: POStatus.L1_APPROVED,
@@ -133,13 +137,11 @@ class ApprovalEngine:
                 5: POStatus.L4_APPROVED,
                 6: POStatus.L5_APPROVED,
             }
-            # The MD acts at required_levels (last level)
+            # MD acts at the last level (required_levels)
             expected_status = level_to_status.get(po.required_levels)
             if expected_status and po.status == expected_status:
                 return True, "ok"
-            if user.id == po.requester_id:
-                return False, "You cannot approve your own PO"
-            return False, f"PO is not at MD approval level yet (current: {po.status.value}, needs: {expected_status.value if expected_status else 'unknown'})"
+            return False, f"PO is not at MD approval level yet (current: {po.status.value}, waiting for level {po.required_levels})"
 
         # Role-based mapping for site approvers
         role_level_map = {
@@ -154,10 +156,8 @@ class ApprovalEngine:
             return False, "Your role does not have approval permissions"
         if po.status not in allowed_statuses:
             return False, f"PO is not at your approval level (current: {po.status.value})"
-        if user.id == po.requester_id:
-            return False, "You cannot approve your own PO"
-        # Site check — approver must belong to the same site as the PO
-        if po.site_id and user.site_id and po.site_id != user.site_id:
+        # Site check — site approvers must match PO site
+        if po.site_id and user.site_id and str(po.site_id) != str(user.site_id):
             return False, "You are not assigned to this PO's site"
         return True, "ok"
 

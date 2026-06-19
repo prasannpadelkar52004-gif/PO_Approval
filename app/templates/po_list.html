@@ -38,6 +38,7 @@
       <thead>
         <tr>
           <th>PO Number</th>
+          <th>Site</th>
           <th>Requester</th>
           <th>Vendor</th>
           <th>Category</th>
@@ -51,6 +52,15 @@
         {% for po in pos %}
         <tr>
           <td><a href="/pos/{{ po.id }}" class="td-mono">{{ po.po_number }}</a></td>
+          <td>
+            {% if po.site_name %}
+            <span style="font-size:0.78rem;background:#EFF6FF;color:#2563EB;border:1px solid #BFDBFE;border-radius:6px;padding:2px 8px;font-weight:600;white-space:nowrap;">
+              {{ po.site_name }}
+            </span>
+            {% else %}
+            <span style="color:var(--text-muted);font-size:0.8rem;">—</span>
+            {% endif %}
+          </td>
           <td>{{ po.requester_name }}</td>
           <td style="font-weight:500;">{{ po.vendor_name }}</td>
           <td><span style="font-size:0.8rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px 8px;">{{ po.po_category.replace('_',' ').title() }}</span></td>
