@@ -36,3 +36,7 @@ logs/
 # Media / uploads
 uploads/
 media/
+
+data.sql
+fix_*.py
+*.sql
