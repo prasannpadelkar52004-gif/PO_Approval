@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, EmailStr, field_validator
 
 from app.models.models import (
-    POStatus, POPriority, ApprovalAction, UserRole, AuditAction
+    POStatus, POPriority, ApprovalAction, UserRole, AuditAction, POType
 )
 
 
@@ -82,6 +82,7 @@ class POCreate(BaseModel):
     department_id: Optional[UUID] = None
     project_id: Optional[UUID] = None
     po_category: str = "material"
+    po_type: Optional[POType] = None
     description: str
     delivery_address: str
     required_by: datetime

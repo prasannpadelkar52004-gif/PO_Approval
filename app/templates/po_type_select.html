@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}New PO — Choose Type{% endblock %}
+{% block page_title %}New Purchase Order{% endblock %}
+
+{% block content %}
+<div style="max-width:760px;margin:0 auto;">
+  <div style="text-align:center;margin-bottom:28px;">
+    <h2 style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:700;color:var(--text);margin-bottom:8px;">What type of PO do you want to create?</h2>
+    <p style="color:var(--text-muted);font-size:0.9rem;">Choose a type to continue. Each type has its own form and terms.</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;">
+
+    <a href="/pos/new/service" class="card" style="text-decoration:none;padding:28px 20px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;transition:all 0.15s;">
+      <div style="width:48px;height:48px;border-radius:12px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;">
+        <svg fill="none" viewBox="0 0 24 24" stroke="var(--blue)" stroke-width="2" style="width:24px;height:24px;">
+          <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      </div>
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.02rem;color:var(--text);">Service PO</div>
+      <div style="font-size:0.82rem;color:var(--text-muted);">For services, labour, subcontract work, and AMC contracts.</div>
+    </a>
+
+    <a href="/pos/new/supply" class="card" style="text-decoration:none;padding:28px 20px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;transition:all 0.15s;">
+      <div style="width:48px;height:48px;border-radius:12px;background:#F0FDF4;display:flex;align-items:center;justify-content:center;">
+        <svg fill="none" viewBox="0 0 24 24" stroke="var(--green)" stroke-width="2" style="width:24px;height:24px;">
+          <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+        </svg>
+      </div>
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.02rem;color:var(--text);">Supply PO</div>
+      <div style="font-size:0.82rem;color:var(--text-muted);">For materials, equipment, and physical goods.</div>
+    </a>
+
+    <a href="/pos/new/technology" class="card" style="text-decoration:none;padding:28px 20px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;transition:all 0.15s;">
+      <div style="width:48px;height:48px;border-radius:12px;background:#F5F3FF;display:flex;align-items:center;justify-content:center;">
+        <svg fill="none" viewBox="0 0 24 24" stroke="var(--purple)" stroke-width="2" style="width:24px;height:24px;">
+          <rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/>
+        </svg>
+      </div>
+      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.02rem;color:var(--text);">Technology PO</div>
+      <div style="font-size:0.82rem;color:var(--text-muted);">For software, IT hardware, and tech subscriptions.</div>
+    </a>
+
+  </div>
+</div>
+
+<style>
+  a.card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+</style>
+{% endblock %}

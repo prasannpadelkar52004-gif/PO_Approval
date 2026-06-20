@@ -310,7 +310,19 @@ async def po_list(
 # ── New PO form ───────────────────────────────────────────────────────────────
 
 @router.get("/pos/new", response_class=HTMLResponse)
-async def new_po_form(request: Request, session: AsyncSession = Depends(get_session)):
+async def new_po_type_select(request: Request, session: AsyncSession = Depends(get_session)):
+    user = await get_user_from_cookie(request, session)
+    if not user:
+        return to_login()
+    return templates.TemplateResponse("po_type_select.html", {
+        "request":       request,
+        "current_user":  user,
+        "active_page":   "po_new",
+        "pending_count": 0,
+    })
+
+
+async def _render_po_type_form(po_type: str, template_name: str, request: Request, session: AsyncSession):
     user = await get_user_from_cookie(request, session)
     if not user:
         return to_login()
@@ -354,22 +366,36 @@ async def new_po_form(request: Request, session: AsyncSession = Depends(get_sess
         _key = f"{_bc.category}::{_bc.sub_category}" if _bc.sub_category else _bc.category
         _rem = float(_bc.budget_amount - _bc.spent_amount)
         _budget_remaining[_key] = _budget_remaining.get(_key, 0) + _rem
-    return templates.TemplateResponse("po_form.html", {
+    return templates.TemplateResponse(template_name, {
         "request":        request,
         "current_user":   user,
         "active_page":    "po_new",
         "pending_count":  0,
         "po":             None,
+        "po_type":        po_type,
         "vendors":        vendors,
         "departments":    departments,
         "projects":       projects,
         "budget_subcategories": _budget_subcategories,
         "budget_remaining": _budget_remaining,
-        "budget_subcategories": _budget_subcategories,
-        "budget_remaining": _budget_remaining,
         "today":          date.today().isoformat(),
         "existing_items": None,
     })
+
+
+@router.get("/pos/new/service", response_class=HTMLResponse)
+async def new_po_service(request: Request, session: AsyncSession = Depends(get_session)):
+    return await _render_po_type_form("service", "po_form_service.html", request, session)
+
+
+@router.get("/pos/new/supply", response_class=HTMLResponse)
+async def new_po_supply(request: Request, session: AsyncSession = Depends(get_session)):
+    return await _render_po_type_form("supply", "po_form_supply.html", request, session)
+
+
+@router.get("/pos/new/technology", response_class=HTMLResponse)
+async def new_po_technology(request: Request, session: AsyncSession = Depends(get_session)):
+    return await _render_po_type_form("technology", "po_form_technology.html", request, session)
 
 
 # ── PO Detail ─────────────────────────────────────────────────────────────────
@@ -414,6 +440,21 @@ async def po_detail(
 
 
 # ── Create PO from form submission ────────────────────────────────────────────
+
+@router.post("/pos/service", response_class=HTMLResponse)
+async def create_po_service(request: Request, session: AsyncSession = Depends(get_session)):
+    return await create_po_submit(request, session)
+
+
+@router.post("/pos/supply", response_class=HTMLResponse)
+async def create_po_supply(request: Request, session: AsyncSession = Depends(get_session)):
+    return await create_po_submit(request, session)
+
+
+@router.post("/pos/technology", response_class=HTMLResponse)
+async def create_po_technology(request: Request, session: AsyncSession = Depends(get_session)):
+    return await create_po_submit(request, session)
+
 
 @router.post("/pos", response_class=HTMLResponse)
 async def create_po_submit(
@@ -463,6 +504,7 @@ async def create_po_submit(
             department_id=form.get("department_id") or None,
             project_id=form.get("project_id") or None,
             po_category=form.get("po_category", "material"),
+            po_type=form.get("po_type") or None,
             sub_category=form.get("sub_category") or None,
             description=form.get("description", ""),
             delivery_address=form.get("delivery_address", ""),

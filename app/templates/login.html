@@ -53,6 +53,19 @@
       letter-spacing: -0.03em;
       margin-bottom: 6px;
     }
+    .brand-logo-card {
+      background: #fff;
+      border-radius: 10px;
+      padding: 14px 20px;
+      display: inline-flex;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .brand-logo-img {
+      max-width: 100%;
+      height: 38px;
+      display: block;
+    }
     .brand-tagline {
       font-size: 0.85rem;
       color: #64748B;
@@ -168,7 +181,9 @@
 
   <div class="panel-brand">
     <div class="brand-content">
-      <div class="brand-logo">P E E I</div>
+      <div class="brand-logo-card">
+        <img src="/static/img/logo.png" alt="PEEI" class="brand-logo-img">
+      </div>
       <div class="brand-tagline">PO Approval System</div>
       <h1 class="brand-headline">Digital approvals for <span>construction teams</span></h1>
       <p class="brand-desc">Replace paper-based purchase orders with a fast, transparent multi-level approval workflow — accessible from any site, any device.</p>

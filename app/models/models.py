@@ -45,6 +45,12 @@ class POPriority(str, Enum):
     URGENT  = "urgent"
 
 
+class POType(str, Enum):
+    SERVICE     = "service"
+    SUPPLY      = "supply"
+    TECHNOLOGY  = "technology"
+
+
 class ApprovalAction(str, Enum):
     APPROVE  = "approve"
     REJECT   = "reject"
@@ -216,6 +222,7 @@ class PurchaseOrder(TimestampMixin, table=True):
     vendor_id:        UUID           = Field(foreign_key="vendors.id")
 
     po_category:      str            = Field(max_length=100, default="material")
+    po_type:          Optional[str]  = Field(default=None, max_length=20)
     sub_category:     Optional[str]  = Field(default=None, max_length=100)
     site_id:          Optional[UUID] = Field(default=None, foreign_key="sites.id")
     budget_category_id: Optional[UUID] = Field(default=None, foreign_key="budget_categories.id")
