@@ -201,14 +201,21 @@ class POService:
         # ── Notify MD if budget exceeded ──────────────────────────────────
         if po.exceeds_budget:
             try:
-                from arq import create_pool
-                from arq.connections import RedisSettings
-                from app.core.config import settings as _settings
-                _url = _settings.REDIS_URL.replace("redis://", "")
-                _host, _port = _url.split(":") if ":" in _url else (_url, "6379")
-                redis = await create_pool(RedisSettings(host=_host, port=int(_port)))
-                await redis.enqueue_job("send_budget_exceed_email", str(po.id))
-                await redis.aclose()
+                # ── DIRECT EMAIL MODE (free tier — no worker needed) ───────
+                from app.tasks.notifications import send_budget_exceed_email
+                await send_budget_exceed_email(None, str(po.id))
+                # ── END DIRECT EMAIL MODE ──────────────────────────────────
+
+                # ══ ARQ WORKER MODE — uncomment below when worker is running ══
+                # from arq import create_pool
+                # from arq.connections import RedisSettings
+                # from app.core.config import settings as _settings
+                # _url = _settings.REDIS_URL.replace("redis://", "")
+                # _host, _port = _url.split(":") if ":" in _url else (_url, "6379")
+                # redis = await create_pool(RedisSettings(host=_host, port=int(_port)))
+                # await redis.enqueue_job("send_budget_exceed_email", str(po.id))
+                # await redis.aclose()
+                # ══ END ARQ WORKER MODE ═══════════════════════════════════════
             except Exception as _e:
                 import logging
                 logging.getLogger(__name__).warning("Budget exceed email failed: %s", _e)
@@ -250,14 +257,21 @@ class POService:
 
         # ── Trigger email notifications ─────────────────────────────────────
         try:
-            from arq import create_pool
-            from arq.connections import RedisSettings
-            from app.core.config import settings as _settings
-            _url = _settings.REDIS_URL.replace("redis://", "")
-            _host, _port = _url.split(":") if ":" in _url else (_url, "6379")
-            redis = await create_pool(RedisSettings(host=_host, port=int(_port)))
-            await redis.enqueue_job("send_approval_request_email", str(po.id), 1)
-            await redis.aclose()
+            # ── DIRECT EMAIL MODE (free tier — no worker needed) ───────────
+            from app.tasks.notifications import send_approval_request_email
+            await send_approval_request_email(None, str(po.id), 1)
+            # ── END DIRECT EMAIL MODE ──────────────────────────────────────
+
+            # ══ ARQ WORKER MODE — uncomment below when worker is running ══
+            # from arq import create_pool
+            # from arq.connections import RedisSettings
+            # from app.core.config import settings as _settings
+            # _url = _settings.REDIS_URL.replace("redis://", "")
+            # _host, _port = _url.split(":") if ":" in _url else (_url, "6379")
+            # redis = await create_pool(RedisSettings(host=_host, port=int(_port)))
+            # await redis.enqueue_job("send_approval_request_email", str(po.id), 1)
+            # await redis.aclose()
+            # ══ END ARQ WORKER MODE ═══════════════════════════════════════
         except Exception as _e:
             import logging
             logging.getLogger(__name__).warning("Email notify failed: %s", _e)
@@ -334,18 +348,29 @@ class POService:
 
         # ── Trigger email notifications ─────────────────────────────────────
         try:
-            from arq import create_pool
-            from arq.connections import RedisSettings
-            from app.core.config import settings as _settings
-            _url = _settings.REDIS_URL.replace("redis://", "")
-            _host, _port = _url.split(":") if ":" in _url else (_url, "6379")
-            redis = await create_pool(RedisSettings(host=_host, port=int(_port)))
+            # ── DIRECT EMAIL MODE (free tier — no worker needed) ───────────
+            from app.tasks.notifications import send_status_update_email, send_approval_request_email
             action_str = req.action.value.lower()
-            await redis.enqueue_job("send_status_update_email", str(po.id), action_str, po.status.value)
+            await send_status_update_email(None, str(po.id), action_str, po.status.value)
             next_level = {"l1_approved": 2, "l2_approved": 3, "l3_approved": 4, "l4_approved": 5, "l5_approved": 6}.get(po.status.value)
             if next_level:
-                await redis.enqueue_job("send_approval_request_email", str(po.id), next_level)
-            await redis.aclose()
+                await send_approval_request_email(None, str(po.id), next_level)
+            # ── END DIRECT EMAIL MODE ──────────────────────────────────────
+
+            # ══ ARQ WORKER MODE — uncomment below when worker is running ══
+            # from arq import create_pool
+            # from arq.connections import RedisSettings
+            # from app.core.config import settings as _settings
+            # _url = _settings.REDIS_URL.replace("redis://", "")
+            # _host, _port = _url.split(":") if ":" in _url else (_url, "6379")
+            # redis = await create_pool(RedisSettings(host=_host, port=int(_port)))
+            # action_str = req.action.value.lower()
+            # await redis.enqueue_job("send_status_update_email", str(po.id), action_str, po.status.value)
+            # next_level = {"l1_approved": 2, "l2_approved": 3, "l3_approved": 4, "l4_approved": 5, "l5_approved": 6}.get(po.status.value)
+            # if next_level:
+            #     await redis.enqueue_job("send_approval_request_email", str(po.id), next_level)
+            # await redis.aclose()
+            # ══ END ARQ WORKER MODE ═══════════════════════════════════════
         except Exception as _e:
             import logging
             logging.getLogger(__name__).warning("Email notify failed: %s", _e)
