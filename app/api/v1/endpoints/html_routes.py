@@ -366,6 +366,44 @@ async def _render_po_type_form(po_type: str, template_name: str, request: Reques
         _key = f"{_bc.category}::{_bc.sub_category}" if _bc.sub_category else _bc.category
         _rem = float(_bc.budget_amount - _bc.spent_amount)
         _budget_remaining[_key] = _budget_remaining.get(_key, 0) + _rem
+    from app.services.po_service import PO_TYPE_CLAUSES
+    _default_clauses = PO_TYPE_CLAUSES.get(po_type, {})
+
+    # Load all sites for MD/Admin site selector
+    _all_sites = (await session.execute(
+        select(Site).where(Site.is_active == True).order_by(Site.name)
+    )).scalars().all()
+
+    # Build site-aware budget remaining: key = site_id::category::sub_category
+    # This lets JS filter by selected site for MD/Admin users
+    from app.models.models import BudgetCategory as _BC2
+    _all_bc = (await session.execute(
+        select(_BC2).where(_BC2.is_active == True)
+    )).scalars().all()
+    _site_budget_remaining = {}
+    for _bc2 in _all_bc:
+        _site_key = f"{_bc2.site_id}::{_bc2.category}::{_bc2.sub_category}" \
+            if _bc2.sub_category else f"{_bc2.site_id}::{_bc2.category}"
+        _rem2 = float(_bc2.budget_amount - _bc2.spent_amount)
+        _site_budget_remaining[_site_key] = \
+            _site_budget_remaining.get(_site_key, 0) + _rem2
+
+    from app.services.loi_service import LOIService
+    _loi_articles = LOIService.fill_articles(po_type, {
+        "vendor_name":      "",
+        "vendor_contact":   "",
+        "po_number":        "DRAFT",
+        "total_amount":     0,
+        "description":      "",
+        "delivery_address": "",
+        "required_by":      "",
+        "penalty_clauses":  "",
+        "delivery_terms":   "",
+        "warranty_terms":   "",
+        "special_conditions": "",
+        "site_name":        "",
+    })
+
     return templates.TemplateResponse(template_name, {
         "request":        request,
         "current_user":   user,
@@ -373,11 +411,15 @@ async def _render_po_type_form(po_type: str, template_name: str, request: Reques
         "pending_count":  0,
         "po":             None,
         "po_type":        po_type,
+        "default_clauses": _default_clauses,
+        "loi_articles":   _loi_articles,
         "vendors":        vendors,
         "departments":    departments,
         "projects":       projects,
+        "all_sites":      _all_sites,
         "budget_subcategories": _budget_subcategories,
         "budget_remaining": _budget_remaining,
+        "site_budget_remaining": _site_budget_remaining,
         "today":          date.today().isoformat(),
         "existing_items": None,
     })
@@ -429,6 +471,49 @@ async def po_detail(
     else:
         _site_chain = [_UR.L1_APPROVER.value, _UR.MD_OWNER.value]
 
+    # loi-greenlet-fixed
+    # Build hidden fields for LOI download forms
+    # Access only already-selectinloaded relations to avoid MissingGreenlet
+    import json as _json
+    from app.services.loi_service import LOIService as _LOI
+    _vendor_name = ""
+    try:
+        if po.vendor:
+            _vendor_name = po.vendor.name
+    except Exception:
+        pass
+    _site_name = ""
+    try:
+        if po.site:
+            _site_name = po.site.name
+    except Exception:
+        pass
+    _po_data_for_loi = {
+        "vendor_name":        _vendor_name,
+        "vendor_contact":     "",
+        "po_number":          po.po_number,
+        "total_amount":       float(po.total_amount),
+        "description":        po.description or "",
+        "delivery_address":   po.delivery_address or "",
+        "required_by":        po.required_by.strftime("%Y-%m-%d") if po.required_by else "",
+        "penalty_clauses":    po.penalty_clauses or "",
+        "delivery_terms":     po.delivery_terms or "",
+        "warranty_terms":     po.warranty_terms or "",
+        "special_conditions": po.special_conditions or "",
+        "site_name":          _site_name,
+    }
+    _po_type = getattr(po, "po_type", None) or "technology"
+    _loi_articles = _LOI.fill_articles(_po_type, _po_data_for_loi)
+    _articles_json = _json.dumps(_loi_articles)
+    _form_data_json = _json.dumps({"total_display": str(float(po.total_amount))})
+    _loi_hidden_fields = (
+        '<input type="hidden" name="articles_json" value="'
+        + _articles_json.replace('"', '&quot;')
+        + '"><input type="hidden" name="form_data_json" value="'
+        + _form_data_json.replace('"', '&quot;')
+        + '">'
+    )
+
     return templates.TemplateResponse("po_detail.html", {
         "request":            request,
         "current_user":       user,
@@ -436,10 +521,107 @@ async def po_detail(
         "pending_count":      0,
         "po":                 po,
         "site_approval_chain": _site_chain,
+        "loi_hidden_fields":  _loi_hidden_fields,
     })
 
 
 # ── Create PO from form submission ────────────────────────────────────────────
+
+# ── LOI Download Routes ───────────────────────────────────────────────────────
+
+@router.post("/pos/loi/download/{po_type}/{fmt}", response_class=HTMLResponse)
+async def download_loi(
+    po_type: str,
+    fmt: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Generate and return a LOI PDF or DOCX file for download."""
+    from app.services.loi_service import LOIService
+    from fastapi.responses import Response
+    import json
+
+    user = await get_user_from_cookie(request, session)
+    if not user:
+        return to_login()
+
+    form = await request.form()
+    try:
+        articles_json  = form.get("articles_json", "[]")
+        form_data_json = form.get("form_data_json", "{}")
+        articles  = json.loads(articles_json)
+        form_data = json.loads(form_data_json)
+    except Exception:
+        articles  = []
+        form_data = {}
+
+    # Enrich form_data with vendor name if vendor_id provided
+    vendor_name = "[VENDOR NAME]"
+    vendor_id = form_data.get("vendor_id", "")
+    if vendor_id:
+        try:
+            _v = (await session.execute(
+                select(Vendor).where(Vendor.id == vendor_id)
+            )).scalar_one_or_none()
+            if _v:
+                vendor_name = _v.name
+        except Exception:
+            pass
+
+    # Enrich with site name if site_id provided
+    site_name = "[SITE]"
+    site_id_val = form_data.get("site_id", "") or (str(user.site_id) if user.site_id else "")
+    if site_id_val:
+        try:
+            _s = (await session.execute(
+                select(Site).where(Site.id == site_id_val)
+            )).scalar_one_or_none()
+            if _s:
+                site_name = _s.name
+        except Exception:
+            pass
+
+    po_data = {
+        "vendor_name":        vendor_name,
+        "vendor_contact":     "[CONTACT]",
+        "po_number":          "DRAFT",
+        "total_amount":       float(form_data.get("total_display", 0) or 0),
+        "description":        form_data.get("description", ""),
+        "delivery_address":   form_data.get("delivery_address", ""),
+        "required_by":        form_data.get("required_by", ""),
+        "penalty_clauses":    form_data.get("penalty_clauses", ""),
+        "delivery_terms":     form_data.get("delivery_terms", ""),
+        "warranty_terms":     form_data.get("warranty_terms", ""),
+        "special_conditions": form_data.get("special_conditions", ""),
+        "site_name":          site_name,
+    }
+
+    # If articles were submitted (edited), use them; otherwise fill fresh
+    if not articles:
+        articles = LOIService.fill_articles(po_type, po_data)
+
+    try:
+        if fmt == "pdf":
+            file_bytes   = LOIService.generate_pdf(po_data, articles)
+            media_type   = "application/pdf"
+            filename     = f"LOI_{po_type.upper()}_DRAFT.pdf"
+        elif fmt == "docx":
+            file_bytes   = LOIService.generate_docx(po_data, articles)
+            media_type   = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            filename     = f"LOI_{po_type.upper()}_DRAFT.docx"
+        else:
+            return Response("Invalid format", status_code=400)
+
+        return Response(
+            content=file_bytes,
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as e:
+        import traceback
+        print("LOI GENERATION ERROR:", traceback.format_exc())
+        return Response(f"LOI generation failed: {e}", status_code=500)
+
 
 @router.post("/pos/service", response_class=HTMLResponse)
 async def create_po_service(request: Request, session: AsyncSession = Depends(get_session)):
@@ -483,6 +665,7 @@ async def create_po_submit(
         line_items = [
             POLineItemCreate(
                 description=item["description"],
+                sub_category=item.get("sub_category") or None,
                 unit_of_measure=item.get("unit", "nos"),
                 quantity=Decimal(str(item.get("qty", 1))),
                 unit_rate=Decimal(str(item.get("rate", 0))),
@@ -505,7 +688,7 @@ async def create_po_submit(
             project_id=form.get("project_id") or None,
             po_category=form.get("po_category", "material"),
             po_type=form.get("po_type") or None,
-            sub_category=form.get("sub_category") or None,
+            sub_category=None,  # sub_category now lives on each line item
             description=form.get("description", ""),
             delivery_address=form.get("delivery_address", ""),
             required_by=required_by,
@@ -562,26 +745,41 @@ async def create_po_submit(
         return RedirectResponse(f"/pos/{po.id}", status_code=302)
 
     except Exception as e:
-        # On error, re-render form with error message
-        import traceback
-        print("❌ PO CREATE ERROR:", traceback.format_exc())
+        # error-handler-fixed-type-specific
+        import traceback as _tb
+        print("PO CREATE ERROR:", _tb.format_exc())
         from datetime import date
-        vendors     = (await session.execute(select(Vendor).where(Vendor.is_active == True))).scalars().all()
+        from app.models.models import BudgetCategory as _BC2
+        from app.services.loi_service import LOIService as _LOI
+        from app.services.po_service import PO_TYPE_CLAUSES
+        try:
+            _form2 = await request.form()
+            _po_type = _form2.get("po_type") or "service"
+        except Exception:
+            _po_type = "service"
+        _tmap = {
+            "service": "po_form_service.html",
+            "supply": "po_form_supply.html",
+            "technology": "po_form_technology.html",
+        }
+        _tname = _tmap.get(_po_type, "po_form_service.html")
+        vendors = (await session.execute(select(Vendor).where(Vendor.is_active == True))).scalars().all()
         departments = (await session.execute(select(Department).where(Department.is_active == True))).scalars().all()
-        projects    = (await session.execute(select(Project).where(Project.is_active == True))).scalars().all()
-
-        return templates.TemplateResponse("po_form.html", {
-            "request":        request,
-            "current_user":   user,
-            "active_page":    "po_new",
-            "pending_count":  0,
-            "po":             None,
-            "vendors":        vendors,
-            "departments":    departments,
-            "projects":       projects,
-            "today":          date.today().isoformat(),
-            "existing_items": None,
-            "error":          str(e),
+        projects = (await session.execute(select(Project).where(Project.is_active == True))).scalars().all()
+        _loi_arts = _LOI.fill_articles(_po_type, {
+            "vendor_name": "", "vendor_contact": "", "po_number": "DRAFT",
+            "total_amount": 0, "description": "", "delivery_address": "",
+            "required_by": "", "penalty_clauses": "", "delivery_terms": "",
+            "warranty_terms": "", "special_conditions": "", "site_name": "",
+        })
+        return templates.TemplateResponse(_tname, {
+            "request": request, "current_user": user, "active_page": "po_new",
+            "pending_count": 0, "po": None, "po_type": _po_type,
+            "vendors": vendors, "departments": departments, "projects": projects,
+            "all_sites": [], "budget_subcategories": {}, "budget_remaining": {},
+            "site_budget_remaining": {}, "default_clauses": PO_TYPE_CLAUSES.get(_po_type, {}),
+            "loi_articles": _loi_arts, "today": date.today().isoformat(),
+            "existing_items": None, "error": str(e),
         }, status_code=400)
 # ── Submit PO ─────────────────────────────────────────────────────────────────
 
@@ -929,6 +1127,7 @@ async def edit_po_submit(
         line_items = [
             POLineItemCreate(
                 description=item["description"],
+                sub_category=item.get("sub_category") or None,
                 unit_of_measure=item.get("unit", "nos"),
                 quantity=Decimal(str(item.get("qty", 1))),
                 unit_rate=Decimal(str(item.get("rate", 0))),
@@ -1047,352 +1246,348 @@ async def authorize_budget(po_id: str, request: Request, session: AsyncSession =
 
     return RedirectResponse(f"/pos/{po_id}", status_code=302)
 
+# unified-po-loi-download
 @router.get("/pos/{po_id}/pdf")
 async def download_po_pdf(
     po_id: str,
     request: Request,
     session: AsyncSession = Depends(get_session),
 ):
+    """Unified PO + LOI document download as PDF."""
     user = await get_user_from_cookie(request, session)
     if not user:
         return to_login()
-
-    from app.services.po_service import POService
     from fastapi.responses import Response
-    import io
-
+    from app.services.po_service import POService
+    from app.services.loi_service import LOIService
+    from app.models.models import ApprovalStep as _AS, Site as _Site
     from sqlalchemy.orm import selectinload as _sli
-    from app.models.models import ApprovalStep
+
     result = await session.execute(
         select(PurchaseOrder).where(PurchaseOrder.id == UUID(po_id))
         .options(
             _sli(PurchaseOrder.vendor), _sli(PurchaseOrder.requester),
-            _sli(PurchaseOrder.line_items), _sli(PurchaseOrder.approval_steps).selectinload(ApprovalStep.approver),
+            _sli(PurchaseOrder.line_items),
+            _sli(PurchaseOrder.approval_steps).selectinload(_AS.approver),
             _sli(PurchaseOrder.department), _sli(PurchaseOrder.project),
+            _sli(PurchaseOrder.site),
         )
     )
     po = result.scalar_one_or_none()
     if not po:
         raise HTTPException(404, "PO not found")
 
-    # Generate HTML for PDF
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <meta charset="UTF-8">
-    <style>
-      body {{ font-family: Arial, sans-serif; margin: 40px; color: #1a1a1a; font-size: 13px; }}
-      .header {{ display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 3px solid #0F1B2D; padding-bottom: 20px; }}
-      .company {{ font-size: 24px; font-weight: 900; color: #0F1B2D; letter-spacing: 0.1em; }}
-      .company-sub {{ font-size: 10px; color: #64748B; text-transform: uppercase; letter-spacing: 0.15em; }}
-      .po-title {{ text-align: right; }}
-      .po-number {{ font-size: 20px; font-weight: 700; color: #2563EB; font-family: monospace; }}
-      .status-badge {{ display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #DBEAFE; color: #1D4ED8; }}
-      .section {{ margin-bottom: 24px; }}
-      .section-title {{ font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #64748B; margin-bottom: 12px; border-bottom: 1px solid #E2E8F0; padding-bottom: 6px; }}
-      .grid-2 {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
-      .grid-4 {{ display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }}
-      .field-label {{ font-size: 10px; font-weight: 600; color: #94A3B8; text-transform: uppercase; margin-bottom: 3px; }}
-      .field-value {{ font-size: 13px; font-weight: 500; color: #1a1a1a; }}
-      table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
-      thead th {{ background: #F8FAFC; padding: 10px 12px; text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; border-bottom: 2px solid #E2E8F0; }}
-      tbody td {{ padding: 10px 12px; border-bottom: 1px solid #F1F5F9; font-size: 12px; }}
-      tfoot td {{ padding: 10px 12px; font-weight: 600; background: #F8FAFC; border-top: 2px solid #E2E8F0; }}
-      .amount {{ text-align: right; font-family: monospace; }}
-      .total-row td {{ font-size: 14px; font-weight: 800; color: #2563EB; background: #EFF6FF; }}
-      .approval-box {{ margin-top: 30px; border: 1px solid #E2E8F0; border-radius: 8px; padding: 20px; }}
-      .approval-level {{ display: inline-block; margin-right: 20px; margin-bottom: 12px; }}
-      .sig-line {{ border-bottom: 1px solid #94A3B8; width: 150px; margin-top: 30px; margin-bottom: 4px; }}
-      .footer {{ margin-top: 40px; padding-top: 16px; border-top: 1px solid #E2E8F0; font-size: 10px; color: #94A3B8; text-align: center; }}
-    </style>
-    </head>
-    <body>
-    <div class="header">
-      <div>
-        <div class="company">P E E I</div>
-        <div class="company-sub">PO Approval System</div>
-      </div>
-      <div class="po-title">
-        <div class="po-number">{po.po_number}</div>
-        <div style="margin-top:6px;"><span class="status-badge">{po.status.value.replace("_"," ").title()}</span></div>
-        <div style="font-size:11px;color:#64748B;margin-top:4px;">Created: {po.created_at.strftime("%d %b %Y")}</div>
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">PO Information</div>
-      <div class="grid-4">
-        <div><div class="field-label">Vendor</div><div class="field-value">{po.vendor.name}</div></div>
-        <div><div class="field-label">Requester</div><div class="field-value">{po.requester.full_name}</div></div>
-        <div><div class="field-label">Category</div><div class="field-value">{po.po_category.replace("_"," ").title()}</div></div>
-        <div><div class="field-label">Priority</div><div class="field-value">{po.priority.value.title()}</div></div>
-        <div><div class="field-label">Department</div><div class="field-value">{po.department.name if po.department else "—"}</div></div>
-        <div><div class="field-label">Project / Site</div><div class="field-value">{po.project.name if po.project else "—"}</div></div>
-        <div><div class="field-label">Required By</div><div class="field-value">{po.required_by.strftime("%d %b %Y")}</div></div>
-        <div><div class="field-label">Payment Terms</div><div class="field-value">{po.payment_terms or "—"}</div></div>
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Description</div>
-      <div style="font-size:13px;color:#334155;">{po.description}</div>
-      <div style="margin-top:8px;"><span style="font-size:11px;font-weight:600;color:#94A3B8;">DELIVERY ADDRESS: </span><span style="font-size:12px;">{po.delivery_address}</span></div>
-    </div>
-
-    <div class="section">
-      <div class="section-title">Line Items</div>
-      <table>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Description</th>
-            <th>Unit</th>
-            <th style="text-align:right">Qty</th>
-            <th style="text-align:right">Rate (Rs.)</th>
-            <th style="text-align:right">Amount (Rs.)</th>
-            <th style="text-align:right">GST %</th>
-            <th style="text-align:right">Total (Rs.)</th>
-          </tr>
-        </thead>
-        <tbody>
-          {"".join(f'''<tr>
-            <td>{i+1}</td>
-            <td>{item.description}</td>
-            <td>{item.unit_of_measure}</td>
-            <td class="amount">{float(item.quantity):,.3f}</td>
-            <td class="amount">{float(item.unit_rate):,.2f}</td>
-            <td class="amount">{float(item.amount):,.2f}</td>
-            <td class="amount">{float(item.gst_percent)}%</td>
-            <td class="amount" style="font-weight:600">{float(item.total):,.2f}</td>
-          </tr>''' for i, item in enumerate(po.line_items))}
-        </tbody>
-        <tfoot>
-          <tr><td colspan="7" style="text-align:right;color:#64748B;">Subtotal</td><td class="amount">Rs.{float(po.subtotal):,.2f}</td></tr>
-          <tr><td colspan="7" style="text-align:right;color:#64748B;">GST</td><td class="amount">Rs.{float(po.gst_amount):,.2f}</td></tr>
-          <tr class="total-row"><td colspan="7" style="text-align:right;">TOTAL AMOUNT</td><td class="amount">Rs.{float(po.total_amount):,.2f}</td></tr>
-        </tfoot>
-      </table>
-    </div>
-
-    <div class="approval-box">
-      <div class="section-title" style="margin-bottom:16px;">Approval Signatures</div>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:20px;">
-        {"".join(f'''<div>
-          <div style="font-size:11px;font-weight:700;color:#0F1B2D;margin-bottom:4px;">L{level} Approval</div>
-          <div class="sig-line"></div>
-          <div style="font-size:10px;color:#64748B;">{"".join(f"{s.approver.full_name}<br>{s.acted_at.strftime('%d %b %Y')}" for s in po.approval_steps if s.level==level) if any(s.level==level for s in po.approval_steps) else "Pending"}</div>
-        </div>''' for level in range(1, po.required_levels+1))}
-      </div>
-    </div>
-
-    <div class="footer">
-      Generated by PO Approval System &nbsp;|&nbsp; {po.po_number} &nbsp;|&nbsp; {po.created_at.strftime("%d %b %Y %H:%M")}
-    </div>
-    </body>
-    </html>
-    """
+    po_data = _build_po_data(po)
+    po_type = getattr(po, "po_type", None) or "technology"
+    articles = LOIService.fill_articles(po_type, po_data)
 
     try:
-        from fpdf import FPDF
-        import re
-
-        class PDF(FPDF):
-            pass
-
-        def sanitize(text):
-            """Replace unsupported unicode chars with ASCII equivalents."""
-            if not text:
-                return ""
-            replacements = {
-                "–": "-",   # en-dash
-                "—": "--",  # em-dash
-                "‘": "'",   # left single quote
-                "’": "'",   # right single quote
-                "“": '"',   # left double quote
-                "”": '"',   # right double quote
-                "…": "...", # ellipsis
-                "°": " degrees",  # degree sign
-                "®": "(R)", # registered trademark
-                "©": "(C)", # copyright
-                "™": "(TM)",# trademark
-                "₹": "Rs.", # rupee sign
-                "é": "e",   # e acute
-                "è": "e",   # e grave
-                "à": "a",   # a grave
-                "ü": "u",   # u umlaut
-                "ö": "o",   # o umlaut
-                "ä": "a",   # a umlaut
-                "•": "-",   # bullet
-                "·": "-",   # middle dot
-                " ": " ",   # non-breaking space
-            }
-            for char, replacement in replacements.items():
-                text = text.replace(char, replacement)
-            # Strip any remaining non-latin1 characters
-            return text.encode("latin-1", errors="replace").decode("latin-1")
-
-        pdf = PDF()
-        pdf.add_page()
-        pdf.set_margins(15, 15, 15)
-
-        # Header
-        pdf.set_fill_color(15, 27, 45)
-        pdf.rect(0, 0, 210, 25, 'F')
-        pdf.set_font("Helvetica", "B", 16)
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_xy(15, 7)
-        pdf.cell(100, 10, "P E E I - PO Approval System", ln=0)
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.set_text_color(100, 160, 255)
-        pdf.set_xy(130, 7)
-        pdf.cell(60, 10, po.po_number, ln=0, align="R")
-        pdf.ln(28)
-
-        # Status & Date
-        pdf.set_font("Helvetica", "", 10)
-        pdf.set_text_color(100, 116, 139)
-        pdf.cell(90, 6, f"Status: {po.status.value.replace('_',' ').title()}", ln=0)
-        pdf.cell(90, 6, f"Created: {po.created_at.strftime('%d %b %Y')}", ln=1, align="R")
-        pdf.ln(3)
-
-        # Section helper
-        def section_title(title):
-            pdf.set_fill_color(248, 250, 252)
-            pdf.set_font("Helvetica", "B", 9)
-            pdf.set_text_color(100, 116, 139)
-            pdf.cell(0, 7, title.upper(), ln=1, fill=True)
-            pdf.ln(2)
-
-        def field(label, value, w=90):
-            pdf.set_font("Helvetica", "B", 8)
-            pdf.set_text_color(148, 163, 184)
-            pdf.cell(w, 5, label.upper(), ln=0)
-            pdf.set_font("Helvetica", "", 9)
-            pdf.set_text_color(15, 23, 42)
-            pdf.cell(w, 5, str(value or "-"), ln=1 if w==90 else 0)
-
-        # PO Info
-        section_title("PO Information")
-        field("Vendor", sanitize(po.vendor.name), 90)
-        field("Requester", po.requester.full_name, 90)
-        field("Category", po.po_category.replace("_"," ").title(), 90)
-        field("Priority", po.priority.value.title(), 90)
-        field("Department", po.department.name if po.department else "-", 90)
-        field("Project/Site", po.project.name if po.project else "-", 90)
-        field("Required By", po.required_by.strftime("%d %b %Y"), 90)
-        field("Payment Terms", sanitize(po.payment_terms or "-"), 90)
-        pdf.ln(3)
-
-        # Description
-        section_title("Description")
-        pdf.set_font("Helvetica", "", 9)
-        pdf.set_text_color(51, 65, 85)
-        pdf.multi_cell(0, 5, sanitize(po.description or "-"))
-        pdf.ln(3)
-
-        # Line Items
-        section_title("Line Items")
-        pdf.set_fill_color(248, 250, 252)
-        pdf.set_font("Helvetica", "B", 8)
-        pdf.set_text_color(100, 116, 139)
-        col_widths = [8, 60, 15, 20, 22, 20, 20, 25]
-        headers = ["#", "Description", "Unit", "Qty", "Rate", "Amount", "GST%", "Total"]
-        for i, h in enumerate(headers):
-            pdf.cell(col_widths[i], 6, h, border=1, fill=True)
-        pdf.ln()
-
-        pdf.set_font("Helvetica", "", 8)
-        pdf.set_text_color(15, 23, 42)
-        for i, item in enumerate(po.line_items):
-            pdf.cell(col_widths[0], 6, str(i+1), border=1)
-            pdf.cell(col_widths[1], 6, sanitize(item.description)[:35], border=1)
-            pdf.cell(col_widths[2], 6, item.unit_of_measure, border=1)
-            pdf.cell(col_widths[3], 6, f"{float(item.quantity):.2f}", border=1, align="R")
-            pdf.cell(col_widths[4], 6, f"{float(item.unit_rate):,.2f}", border=1, align="R")
-            pdf.cell(col_widths[5], 6, f"{float(item.amount):,.2f}", border=1, align="R")
-            pdf.cell(col_widths[6], 6, f"{float(item.gst_percent)}%", border=1, align="R")
-            pdf.cell(col_widths[7], 6, f"{float(item.total):,.2f}", border=1, align="R")
-            pdf.ln()
-
-        # Totals
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.set_fill_color(248, 250, 252)
-        pdf.cell(165, 6, "Subtotal", border=1, fill=True, align="R")
-        pdf.cell(25, 6, f"Rs.{float(po.subtotal):,.2f}", border=1, align="R", fill=True)
-        pdf.ln()
-        pdf.cell(165, 6, "GST", border=1, fill=True, align="R")
-        pdf.cell(25, 6, f"Rs.{float(po.gst_amount):,.2f}", border=1, align="R", fill=True)
-        pdf.ln()
-        pdf.set_fill_color(219, 234, 254)
-        pdf.set_text_color(37, 99, 235)
-        pdf.cell(165, 7, "TOTAL AMOUNT", border=1, fill=True, align="R")
-        pdf.cell(25, 7, f"Rs.{float(po.total_amount):,.2f}", border=1, align="R", fill=True)
-        pdf.ln(8)
-
-        # Approval Signatures
-        section_title("Approval Signatures")
-        pdf.set_text_color(15, 23, 42)
-        sig_w = 180 / max(po.required_levels, 1)
-        for level in range(1, po.required_levels + 1):
-            step = next((s for s in po.approval_steps if s.level == level), None)
-            pdf.set_font("Helvetica", "B", 8)
-            pdf.set_text_color(15, 27, 45)
-            label = f"L{level} Approval"
-            pdf.cell(sig_w, 5, label, ln=0)
-        pdf.ln(6)
-        for level in range(1, po.required_levels + 1):
-            step = next((s for s in po.approval_steps if s.level == level), None)
-            pdf.set_font("Helvetica", "", 8)
-            pdf.set_text_color(100, 116, 139)
-            if step and step.approver:
-                txt = f"{step.approver.full_name}"
-            else:
-                txt = "Pending"
-            pdf.cell(sig_w, 5, txt, ln=0)
-        pdf.ln(8)
-
-
-        # Terms & Conditions (only if any field is filled)
-        tnc_fields = [
-            ("Penalty Clauses",  getattr(po, "penalty_clauses",    None)),
-            ("Delivery Terms",   getattr(po, "delivery_terms",     None)),
-            ("Warranty / Guarantee", getattr(po, "warranty_terms", None)),
-            ("Special Conditions",   getattr(po, "special_conditions", None)),
-        ]
-        has_tnc = any(v for _, v in tnc_fields)
-        if has_tnc:
-            pdf.ln(2)
-            section_title("Terms & Conditions")
-            for label, value in tnc_fields:
-                if value:
-                    pdf.set_font("Helvetica", "B", 8)
-                    pdf.set_text_color(100, 116, 139)
-                    pdf.cell(0, 5, label.upper(), ln=1)
-                    pdf.set_font("Helvetica", "", 9)
-                    pdf.set_text_color(51, 65, 85)
-                    pdf.multi_cell(0, 5, sanitize(value))
-                    pdf.ln(2)
-        pdf.ln(4)
-
-        # Footer
-        pdf.set_font("Helvetica", "", 8)
-        pdf.set_text_color(148, 163, 184)
-        pdf.cell(0, 5, f"Generated by PO Approval System | {po.po_number} | {po.created_at.strftime('%d %b %Y %H:%M')}", align="C")
-
-        pdf_bytes = bytes(pdf.output())
-        return Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f"attachment; filename={po.po_number}.pdf"}
-        )
+        pdf_bytes = _generate_unified_pdf(po, po_data, articles)
     except Exception as e:
         import traceback
         print("PDF ERROR:", traceback.format_exc())
-        return Response(content=f"PDF Error: {str(e)}", media_type="text/plain")
+        raise HTTPException(500, f"PDF generation failed: {e}")
+
+    filename = f"{po.po_number}_LOI.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
-# ── Admin — Sites ─────────────────────────────────────────────────────────────
+@router.get("/pos/{po_id}/docx")
+async def download_po_docx(
+    po_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Unified PO + LOI document download as Word DOCX."""
+    user = await get_user_from_cookie(request, session)
+    if not user:
+        return to_login()
+    from fastapi.responses import Response
+    from app.services.loi_service import LOIService
+    from app.models.models import ApprovalStep as _AS
+    from sqlalchemy.orm import selectinload as _sli
+
+    result = await session.execute(
+        select(PurchaseOrder).where(PurchaseOrder.id == UUID(po_id))
+        .options(
+            _sli(PurchaseOrder.vendor), _sli(PurchaseOrder.requester),
+            _sli(PurchaseOrder.line_items),
+            _sli(PurchaseOrder.approval_steps).selectinload(_AS.approver),
+            _sli(PurchaseOrder.department), _sli(PurchaseOrder.project),
+            _sli(PurchaseOrder.site),
+        )
+    )
+    po = result.scalar_one_or_none()
+    if not po:
+        raise HTTPException(404, "PO not found")
+
+    po_data = _build_po_data(po)
+    po_type = getattr(po, "po_type", None) or "technology"
+    articles = LOIService.fill_articles(po_type, po_data)
+
+    try:
+        docx_bytes = LOIService.generate_docx(po_data, articles)
+    except Exception as e:
+        import traceback
+        print("DOCX ERROR:", traceback.format_exc())
+        raise HTTPException(500, f"DOCX generation failed: {e}")
+
+    filename = f"{po.po_number}_LOI.docx"
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _build_po_data(po) -> dict:
+    """Build the po_data dict for LOI template filling from a loaded PO object."""
+    return {
+        "vendor_name":        po.vendor.name if po.vendor else "[VENDOR NAME]",
+        "vendor_contact":     po.vendor.email or "" if po.vendor else "",
+        "po_number":          po.po_number,
+        "total_amount":       float(po.total_amount),
+        "description":        po.description or "",
+        "delivery_address":   po.delivery_address or "",
+        "required_by":        po.required_by.strftime("%d-%m-%Y") if po.required_by else "",
+        "penalty_clauses":    po.penalty_clauses or "",
+        "delivery_terms":     po.delivery_terms or "",
+        "warranty_terms":     po.warranty_terms or "",
+        "special_conditions": po.special_conditions or "",
+        "site_name":          po.site.name if po.site else "",
+        "subtotal":           float(po.subtotal),
+        "gst_amount":         float(po.gst_amount),
+        "requester_name":     po.requester.full_name if po.requester else "",
+        "po_category":        po.po_category or "",
+        "priority":           po.priority.value if po.priority else "normal",
+        "payment_terms":      po.payment_terms or "",
+        "line_items":         [
+            {
+                "description":     li.description,
+                "sub_category":    getattr(li, "sub_category", "") or "",
+                "unit_of_measure": li.unit_of_measure,
+                "quantity":        float(li.quantity),
+                "unit_rate":       float(li.unit_rate),
+                "gst_percent":     float(li.gst_percent),
+                "total":           float(li.total),
+            }
+            for li in (po.line_items or [])
+        ],
+    }
+
+
+def _sanitize_pdf_text(text: str) -> str:
+    """Replace non-Latin-1 characters with safe ASCII equivalents for fpdf2 Helvetica."""
+    if not text:
+        return ""
+    replacements = {
+        "—": "-",   # em dash
+        "–": "-",   # en dash
+        "‘": "'",   # left single quote
+        "’": "'",   # right single quote
+        "“": '"',   # left double quote
+        "”": '"',   # right double quote
+        "₹": "INR ",# rupee sign
+        "•": "*",   # bullet
+        " ": " ",   # non-breaking space
+        "…": "...", # ellipsis
+        "·": "*",   # middle dot
+    }
+    for char, replacement in replacements.items():
+        text = text.replace(char, replacement)
+    # Final safety net: encode to latin-1, replacing anything still outside range
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
+
+def _generate_unified_pdf(po, po_data: dict, articles: list) -> bytes:
+    """
+    Generate a unified PDF with:
+    1. PEEI header + PO details
+    2. Line items table
+    3. Terms & Conditions
+    4. LOI Articles 1-28
+    5. Signature section
+    """
+    from fpdf import FPDF
+    from io import BytesIO
+
+    class PO_PDF(FPDF):
+        def header(self):
+            self.set_font("Helvetica", "B", 11)
+            self.set_fill_color(15, 27, 45)
+            self.set_text_color(255, 255, 255)
+            self.cell(0, 10, "  PASSAVANT ENERGY & ENVIRONMENT INDIA PVT. LTD.", fill=True, ln=True)
+            self.set_text_color(0, 0, 0)
+            self.set_font("Helvetica", "", 8)
+            self.set_text_color(100, 116, 139)
+            self.cell(0, 5, "  PO APPROVAL SYSTEM", ln=True)
+            self.set_text_color(0, 0, 0)
+            self.ln(2)
+
+        def footer(self):
+            self.set_y(-12)
+            self.set_font("Helvetica", "I", 7)
+            self.set_text_color(150, 150, 150)
+            self.cell(0, 5,
+                _sanitize_pdf_text(f"{po_data['po_number']} | Page {self.page_no()} | Confidential"),
+                align="C")
+            self.set_text_color(0, 0, 0)
+
+        def section_title(self, title):  # encoding-fix2
+            self.set_font("Helvetica", "B", 9)
+            self.set_fill_color(248, 250, 252)
+            self.set_draw_color(226, 232, 240)
+            self.cell(0, 7, "  " + _sanitize_pdf_text(str(title)), border="B", fill=True, ln=True)
+            self.ln(2)
+
+        def field_row(self, label, value, w1=45, w2=85):
+            self.set_font("Helvetica", "", 8)
+            self.set_text_color(100, 116, 139)
+            self.cell(w1, 5, _sanitize_pdf_text(str(label)))
+            self.set_text_color(0, 0, 0)
+            self.set_font("Helvetica", "B", 8)
+            self.cell(w2, 5, _sanitize_pdf_text(str(value))[:60], ln=True)
+            self.set_font("Helvetica", "", 9)
+
+    pdf = PO_PDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_margins(15, 20, 15)
+    pdf.add_page()
+
+    # ── PO Header Info ────────────────────────────────────────────────────────
+    pdf.section_title("PURCHASE ORDER DETAILS")
+
+    pdf.field_row("PO Number:", po_data["po_number"])
+    pdf.field_row("Vendor:", po_data["vendor_name"])
+    pdf.field_row("Site:", po_data["site_name"])
+    pdf.field_row("Category:", po_data["po_category"].replace("_", " ").title())
+    pdf.field_row("Priority:", po_data["priority"].title())
+    pdf.field_row("Required By:", po_data["required_by"])
+    pdf.field_row("Payment Terms:", po_data["payment_terms"])
+    pdf.field_row("Requester:", po_data["requester_name"])
+    pdf.field_row("Delivery Address:", po_data["delivery_address"][:80])
+    pdf.ln(2)
+
+    # Description
+    pdf.set_font("Helvetica", "", 8)
+    pdf.set_text_color(100, 116, 139)
+    pdf.cell(45, 5, "Description:")
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Helvetica", "", 8)
+    desc = po_data["description"]
+    pdf.multi_cell(0, 5, _sanitize_pdf_text(desc[:300] + ("..." if len(desc) > 300 else "")))
+    pdf.ln(3)
+
+    # ── Line Items ────────────────────────────────────────────────────────────
+    pdf.section_title("LINE ITEMS")
+    col_widths = [60, 30, 15, 20, 20, 15, 20]
+    headers = ["Description", "Sub-Category", "Unit", "Qty", "Rate (INR)", "GST%", "Total (INR)"]
+
+    pdf.set_font("Helvetica", "B", 7)
+    pdf.set_fill_color(248, 250, 252)
+    for i, h in enumerate(headers):
+        align = "R" if i >= 3 else "L"
+        pdf.cell(col_widths[i], 6, h, border=1, fill=True, align=align)
+    pdf.ln()
+
+    pdf.set_font("Helvetica", "", 7)
+    for item in po_data["line_items"]:
+        pdf.cell(col_widths[0], 5, _sanitize_pdf_text(item["description"][:35]), border="B")
+        pdf.cell(col_widths[1], 5, (item["sub_category"] or "")[:18], border="B")
+        pdf.cell(col_widths[2], 5, item["unit_of_measure"], border="B", align="C")
+        pdf.cell(col_widths[3], 5, f"{item['quantity']:.2f}", border="B", align="R")
+        pdf.cell(col_widths[4], 5, f"{item['unit_rate']:,.2f}", border="B", align="R")
+        pdf.cell(col_widths[5], 5, f"{item['gst_percent']:.0f}%", border="B", align="R")
+        pdf.cell(col_widths[6], 5, f"{item['total']:,.2f}", border="B", align="R")
+        pdf.ln()
+
+    # Totals
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.cell(sum(col_widths[:6]), 6, "Subtotal", border="T", align="R")
+    pdf.cell(col_widths[6], 6, f"INR {po_data['subtotal']:,.2f}", border="T", align="R")
+    pdf.ln()
+    pdf.cell(sum(col_widths[:6]), 6, "GST", align="R")
+    pdf.cell(col_widths[6], 6, f"INR {po_data['gst_amount']:,.2f}", align="R")
+    pdf.ln()
+    pdf.set_fill_color(239, 246, 255)
+    pdf.set_text_color(37, 99, 235)
+    pdf.cell(sum(col_widths[:6]), 7, "GRAND TOTAL", fill=True, align="R")
+    pdf.cell(col_widths[6], 7, f"INR {po_data['total_amount']:,.2f}", fill=True, align="R")
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(5)
+
+    # ── Terms & Conditions ────────────────────────────────────────────────────
+    if any([po_data["penalty_clauses"], po_data["delivery_terms"],
+            po_data["warranty_terms"], po_data["special_conditions"]]):
+        pdf.section_title("TERMS & CONDITIONS")
+        tnc_fields = [
+            ("Penalty Clauses", po_data["penalty_clauses"]),
+            ("Delivery Terms", po_data["delivery_terms"]),
+            ("Warranty Terms", po_data["warranty_terms"]),
+            ("Special Conditions", po_data["special_conditions"]),
+        ]
+        for label, val in tnc_fields:
+            if val:
+                pdf.set_font("Helvetica", "B", 8)
+                pdf.cell(0, 5, label + ":", ln=True)
+                pdf.set_font("Helvetica", "", 8)
+                pdf.multi_cell(0, 4, _sanitize_pdf_text(val[:500]))
+                pdf.ln(2)
+
+    # ── LOI Articles ──────────────────────────────────────────────────────────
+    pdf.add_page()
+    pdf.section_title("LETTER OF INTENT — TERMS AND CONDITIONS")
+    pdf.ln(2)
+
+    # Intro
+    pdf.set_font("Helvetica", "", 9)
+    intro = _sanitize_pdf_text(
+        f"Passavant Energy & Environment India Pvt. Ltd. (PEEIPL) is pleased to issue "
+        f"this Letter of Intent to M/s {po_data['vendor_name']} subject to the following "
+        f"terms and conditions."
+    )
+    pdf.multi_cell(0, 5, _sanitize_pdf_text(intro))
+    pdf.ln(4)
+
+    for article in articles:
+        pdf.set_font("Helvetica", "B", 9)
+        heading = f"ARTICLE {article['number']} - {article['title']}"
+        pdf.multi_cell(0, 5, _sanitize_pdf_text(heading))
+        pdf.ln(1)
+        pdf.set_font("Helvetica", "", 8)
+        body = _sanitize_pdf_text(article.get("body", ""))
+        pdf.multi_cell(0, 4, body)
+        pdf.ln(4)
+
+    # ── Signatures ────────────────────────────────────────────────────────────
+    pdf.ln(6)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(0, 5,
+        "Please sign and return a copy of this LOI as acceptance of the above terms.",
+        ln=True)
+    pdf.ln(10)
+
+    col = (pdf.w - pdf.l_margin - pdf.r_margin) / 2
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.cell(col, 5, _sanitize_pdf_text("For Passavant Energy & Environment India Pvt. Ltd."))
+    pdf.cell(col, 5, _sanitize_pdf_text(f"For {po_data['vendor_name']}"), ln=True)
+    pdf.ln(16)
+    x = pdf.l_margin
+    pdf.line(x, pdf.get_y(), x + col - 5, pdf.get_y())
+    pdf.line(x + col + 5, pdf.get_y(), x + col * 2, pdf.get_y())
+    pdf.ln(3)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.cell(col, 5, "Authorised Signatory")
+    pdf.cell(col, 5, "Authorised Signatory", ln=True)
+
+    buf = BytesIO()
+    pdf.output(buf)
+    return buf.getvalue()
+
 
 @router.get("/admin/sites", response_class=HTMLResponse)
 async def admin_sites(request: Request, session: AsyncSession = Depends(get_session)):
@@ -1553,7 +1748,7 @@ async def admin_add_budget(site_id: str, request: Request, session: AsyncSession
             id=uuid4(), site_id=UUID(site_id),
             project_id=UUID(form.get("project_id")) if form.get("project_id") else None,
             category=form.get("category"),
-            sub_category=form.get("sub_category") or None,
+            sub_category=None,  # sub_category now lives on each line item
             budget_amount=Decimal(form.get("budget_amount")),
             spent_amount=Decimal(0), is_active=True,
             created_at=datetime.utcnow(), updated_at=datetime.utcnow(),

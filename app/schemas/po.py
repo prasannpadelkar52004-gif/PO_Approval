@@ -47,6 +47,7 @@ class UserRead(BaseModel):
 
 class POLineItemCreate(BaseModel):
     description: str
+    sub_category: Optional[str] = None  # sub_cat per line item
     unit_of_measure: str = "nos"
     quantity: Decimal
     unit_rate: Decimal

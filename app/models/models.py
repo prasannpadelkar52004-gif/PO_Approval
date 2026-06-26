@@ -274,6 +274,7 @@ class POLineItem(SQLModel, table=True):
     id:                UUID    = Field(default_factory=uuid4, primary_key=True)
     purchase_order_id: UUID    = Field(foreign_key="purchase_orders.id")
     sort_order:        int     = Field(default=0)
+    sub_category:      Optional[str] = Field(default=None, max_length=100)  # sub_category per line item
     description:       str     = Field(sa_column=Column(Text))
     unit_of_measure:   str     = Field(max_length=30, default="nos")
     quantity:          Decimal = Field(sa_column=Column(Numeric(12, 3)))

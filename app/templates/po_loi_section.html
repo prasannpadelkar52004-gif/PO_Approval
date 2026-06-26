@@ -1,0 +1,145 @@
+{# LOI Editor Section — included in po_form_service/supply/technology.html #}
+{# Requires: loi_articles (list of {number, title, body}), po_type #}
+
+<div class="card" id="loi-section" style="margin-top:20px;">
+  <div class="card-header" style="cursor:pointer;" onclick="toggleLOI()">
+    <span class="card-title">
+      📄 LOI / Letter of Intent
+      <span style="font-size:0.78rem;font-weight:400;color:var(--text-muted);margin-left:8px;">
+        — Click to expand, edit, and download
+      </span>
+    </span>
+    <span id="loi-toggle-icon" style="color:var(--text-muted);font-size:1.1rem;">▼</span>
+  </div>
+
+  <div id="loi-body" style="display:none;">
+    <div class="card-body" style="padding:14px 22px 8px;">
+      <div class="alert alert-info" style="margin-bottom:16px;font-size:0.83rem;">
+        The LOI is pre-filled from this PO's data. You can edit any article before downloading.
+        Downloading the LOI does <strong>not</strong> submit the PO — use the Submit button above for that.
+      </div>
+
+      <div id="loi-articles-container">
+        {% for article in loi_articles %}
+        <div class="loi-article" style="margin-bottom:18px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <span style="font-size:0.78rem;font-weight:700;color:var(--slate);white-space:nowrap;">ARTICLE {{ article.number }}</span>
+            <input
+              type="text"
+              class="form-control loi-article-title-input"
+              data-article-number="{{ article.number }}"
+              value="{{ article.title }}"
+              style="font-size:0.82rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:var(--text-mid);padding:4px 10px;height:auto;"
+              oninput="onLOIArticleEdit()"
+              placeholder="Article title..."
+            >
+          </div>
+          <textarea
+            class="form-control loi-article-textarea"
+            data-article-number="{{ article.number }}"
+            data-article-title="{{ article.title }}"
+            rows="4"
+            style="font-size:0.83rem;font-family:'DM Mono',monospace;resize:vertical;"
+            oninput="onLOIArticleEdit()"
+          >{{ article.body }}</textarea>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- download-buttons-removed -->
+      <div style="padding:8px 0 12px;">
+        <span style="font-size:0.8rem;color:var(--text-muted);">💡 Download the LOI after saving the PO as Draft — use the Download buttons on the PO detail page.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── LOI Editor JS ─────────────────────────────────────────────────────────────
+
+var LOI_PO_TYPE = "{{ po_type }}";
+var LOI_EDITED  = false;
+
+function toggleLOI() {
+  var body = document.getElementById('loi-body');
+  var icon = document.getElementById('loi-toggle-icon');
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    icon.textContent = '▲';
+  } else {
+    body.style.display = 'none';
+    icon.textContent = '▼';
+  }
+}
+
+function onLOIArticleEdit() {
+  LOI_EDITED = true;
+}
+
+function getLOIArticlesJson() {
+  var articles = [];
+  document.querySelectorAll('.loi-article-textarea').forEach(function(ta) {
+    var num = ta.dataset.articleNumber;
+    // Find the corresponding title input
+    var titleInput = document.querySelector(
+      '.loi-article-title-input[data-article-number="' + num + '"]'
+    );
+    var title = titleInput ? titleInput.value : ta.dataset.articleTitle;
+    articles.push({
+      number: num,
+      title:  title,
+      body:   ta.value,
+    });
+  });
+  return JSON.stringify(articles);
+}
+
+function getFormDataForLOI() {
+  // Collect current form values to send with the LOI request
+  // so the server can fill any remaining placeholders
+  var data = {};
+  var fields = ['vendor_id', 'description', 'delivery_address',
+                'required_by', 'penalty_clauses', 'delivery_terms',
+                'warranty_terms', 'special_conditions', 'site_id',
+                'po_category', 'priority', 'payment_terms'];
+  fields.forEach(function(f) {
+    var el = document.querySelector('[name="' + f + '"]');
+    if (el) data[f] = el.value || '';
+  });
+  // Also include the current grand total
+  var totalEl = document.getElementById('grand-total-display');
+  data['total_display'] = totalEl ? totalEl.textContent.replace('₹', '').replace(/,/g, '') : '0';
+  return data;
+}
+
+function downloadLOI(format) {
+  var status = document.getElementById('loi-download-status');
+  status.textContent = 'Generating ' + format.toUpperCase() + '...';
+
+  var articlesJson = getLOIArticlesJson();
+  var formData     = getFormDataForLOI();
+
+  // Build a hidden form and POST it — this triggers a file download
+  var form = document.createElement('form');
+  form.method = 'POST';
+  form.action = '/pos/loi/download/' + LOI_PO_TYPE + '/' + format;
+  form.target = '_blank';  // open in new tab so current form isn't navigated away
+
+  function addField(name, val) {
+    var inp = document.createElement('input');
+    inp.type  = 'hidden';
+    inp.name  = name;
+    inp.value = val;
+    form.appendChild(inp);
+  }
+
+  addField('articles_json', articlesJson);
+  addField('form_data_json', JSON.stringify(formData));
+
+  document.body.appendChild(form);
+  form.submit();
+  document.body.removeChild(form);
+
+  setTimeout(function() { status.textContent = ''; }, 3000);
+}
+</script>

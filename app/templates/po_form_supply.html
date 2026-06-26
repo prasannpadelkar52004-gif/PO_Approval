@@ -30,6 +30,22 @@
                 {% endfor %}
               </select>
             </div>
+            {% if current_user.role in ['MD_OWNER', 'ADMIN'] %}
+            <div class="form-group">
+              <label class="form-label">Site <span class="req">*</span></label>
+              <select name="site_id" id="po_site_id" class="form-control" required
+                      onchange="onSiteChange(this.value)">
+                <option value="">— Select site —</option>
+                {% for site in all_sites %}
+                <option value="{{ site.id }}"
+                  {% if po and po.site_id == site.id %}selected{% endif %}>
+                  {{ site.name }}
+                </option>
+                {% endfor %}
+              </select>
+              <div class="form-hint">Select the site this PO is for — budget checks will use this site's data.</div>
+            </div>
+            {% endif %}
             <div class="form-group">
               <label class="form-label">PO Category <span class="req">*</span></label>
               <select name="po_category" id="po_category" class="form-control" required onchange="updateSubCategories()">
@@ -38,23 +54,7 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="form-group">
-              <label class="form-label">Sub-Category <span class="req">*</span></label>
-              <select name="sub_category" id="sub_category" class="form-control" required>
-                <option value="" disabled selected>— Select Sub-Category —</option>
-                {% if budget_subcategories %}
-                  {% for cat, subs in budget_subcategories.items() %}
-                    {% for sub in subs %}
-                    <option value="{{ sub }}" data-category="{{ cat }}"
-                      {% if po and po.sub_category == sub %}selected{% endif %}>
-                      {{ sub }}
-                    </option>
-                    {% endfor %}
-                  {% endfor %}
-                {% endif %}
-              </select>
-              <div class="form-hint" id="budget-hint" style="color:var(--blue);font-size:0.8rem;margin-top:4px;"></div>
-            </div>
+
             <div class="form-group">
               <label class="form-label">Project / Site</label>
               <select name="project_id" class="form-control">
@@ -113,22 +113,22 @@
           <div class="form-group">
             <label class="form-label">Penalty Clauses</label>
             <textarea name="penalty_clauses" class="form-control" rows="3"
-              placeholder="e.g. Penalty of 1% per week for delay in delivery, max 10%...">{{ po.penalty_clauses if po and po.penalty_clauses else '' }}</textarea>
+              placeholder="e.g. Penalty of 1% per week for delay in delivery, max 10%...">{{ po.penalty_clauses if po and po.penalty_clauses else default_clauses.get('penalty_clauses', '') }}</textarea>
           </div>
           <div class="form-group">
             <label class="form-label">Delivery Terms</label>
             <textarea name="delivery_terms" class="form-control" rows="3"
-              placeholder="e.g. Delivery within 30 days from PO date...">{{ po.delivery_terms if po and po.delivery_terms else '' }}</textarea>
+              placeholder="e.g. Delivery within 30 days from PO date...">{{ po.delivery_terms if po and po.delivery_terms else default_clauses.get('delivery_terms', '') }}</textarea>
           </div>
           <div class="form-group">
             <label class="form-label">Warranty / Guarantee</label>
             <textarea name="warranty_terms" class="form-control" rows="3"
-              placeholder="e.g. 12 months warranty from date of delivery...">{{ po.warranty_terms if po and po.warranty_terms else '' }}</textarea>
+              placeholder="e.g. 12 months warranty from date of delivery...">{{ po.warranty_terms if po and po.warranty_terms else default_clauses.get('warranty_terms', '') }}</textarea>
           </div>
           <div class="form-group" style="margin-bottom:0;">
             <label class="form-label">Special Conditions</label>
             <textarea name="special_conditions" class="form-control" rows="3"
-              placeholder="Any other special terms and conditions...">{{ po.special_conditions if po and po.special_conditions else '' }}</textarea>
+              placeholder="Any other special terms and conditions...">{{ po.special_conditions if po and po.special_conditions else default_clauses.get('special_conditions', '') }}</textarea>
           </div>
         </div>
       </div>
@@ -143,8 +143,9 @@
           </button>
         </div>
         <div class="card-body" style="padding:0;">
-          <div style="display:grid;grid-template-columns:3fr 1fr 1.2fr 1.2fr 1fr 1fr 36px;gap:8px;padding:10px 18px;background:#F8FAFC;border-bottom:1px solid var(--border);">
+          <div style="display:grid;grid-template-columns:2.5fr 1.5fr 1fr 1.2fr 1.2fr 1fr 1fr 36px;gap:8px;padding:10px 18px;background:#F8FAFC;border-bottom:1px solid var(--border);">
             <span class="text-xs" style="font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;">Description</span>
+            <span class="text-xs" style="font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;">Sub-Category</span>
             <span class="text-xs" style="font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;">Unit</span>
             <span class="text-xs" style="font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;text-align:right;">Quantity</span>
             <span class="text-xs" style="font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;text-align:right;">Unit Rate ₹</span>
@@ -193,6 +194,10 @@
   <input type="hidden" name="line_items_json" id="line_items_json" value="[]">
 
   <input type="hidden" name="po_type" value="supply">
+
+  {# ── LOI Editor & Download ───────────────────────── #}
+  {% include "po_loi_section.html" %}
+
 </form>
 {% endblock %}
 
@@ -200,29 +205,15 @@
 <script>
 // Sub-category filter by category
 var BUDGET_DATA = {{ budget_subcategories | tojson if budget_subcategories else '{}' }};
+var SITE_BUDGET_REMAINING = {{ site_budget_remaining | tojson if site_budget_remaining else '{}' }};
+var CURRENT_SITE_ID = '{{ current_user.site_id if current_user.site_id else "" }}';
 var BUDGET_REMAINING = {{ budget_remaining | tojson if budget_remaining else '{}' }};
 
 function updateSubCategories() {
-  var cat = document.getElementById('po_category').value;
-  var subSel = document.getElementById('sub_category');
-  var hint = document.getElementById('budget-hint');
-  if (!subSel) return;
-
-  // Save current value
-  var currentVal = subSel.value;
-
-  // Rebuild options
-  subSel.innerHTML = '<option value="" disabled selected>— Select Sub-Category —</option>';
-  var subs = BUDGET_DATA[cat] || [];
-  subs.forEach(function(sub) {
-    var opt = document.createElement('option');
-    opt.value = sub;
-    opt.textContent = sub;
-    if (sub === currentVal) opt.selected = true;
-    subSel.appendChild(opt);
-  });
-
-  updateBudgetHint();
+  // Sub-category now lives in each line item row.
+  // Re-render all rows so their sub-category dropdowns
+  // reflect the newly selected PO Category.
+  renderItems();
 }
 
 function updateBudgetHint() {
@@ -250,7 +241,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 var UNITS = ['nos','kg','mt','sqft','sqm','rmt','lot','litre','bag','box'];
 var GST_RATES = [0, 5, 12, 18, 28];
-var items = {{ (existing_items | tojson if existing_items else '[{"description":"","unit":"nos","qty":1,"rate":0,"gst":18,"total":0}]') | safe }};
+var items = {{ (existing_items | tojson if existing_items else '[{"description":"","sub_category":"","unit":"nos","qty":1,"rate":0,"gst":18,"total":0}]') | safe }};
 
 function fmt(n) {
   return '₹' + Number(n).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -277,6 +268,45 @@ function updateTotals() {
   document.getElementById('grand-total-sidebar').textContent = fmt(grand);
 }
 
+function getActiveSiteId() {
+  var sel = document.getElementById('po_site_id');
+  if (sel && sel.value) return sel.value;
+  return CURRENT_SITE_ID;
+}
+
+function getBudgetHintHtml(cat, sub) {
+  if (!sub) return '';
+  var siteId = getActiveSiteId();
+  var remaining;
+  if (siteId) {
+    // Site-aware key: site_id::category::sub_category
+    var siteKey = cat ? (siteId + '::' + cat + '::' + sub) : (siteId + '::' + sub);
+    remaining = SITE_BUDGET_REMAINING[siteKey];
+  } else {
+    // Fallback to non-site key (cross-site, for users with no site)
+    var key = cat ? (cat + '::' + sub) : sub;
+    remaining = BUDGET_REMAINING[key];
+  }
+  if (remaining === undefined) return '<span style="color:var(--slate-light);">No budget configured</span>';
+  var color = remaining <= 0 ? 'var(--red)' : remaining <= 50000 ? 'var(--amber)' : 'var(--green)';
+  var label = remaining <= 0 ? 'Over budget' : 'Remaining';
+  return '<span style="color:' + color + ';">' + label + ': \u20b9' + Number(remaining).toLocaleString('en-IN', {minimumFractionDigits:0}) + '</span>';
+}
+
+function onSiteChange(siteId) {
+  // Re-render all line item budget hints when site changes
+  items.forEach(function(item, idx) {
+    var cat = document.getElementById('po_category') ? document.getElementById('po_category').value : '';
+    updateLineItemBudgetHint(idx, item.sub_category || '');
+  });
+}
+
+function updateLineItemBudgetHint(idx, sub) {
+  var cat = document.getElementById('po_category') ? document.getElementById('po_category').value : '';
+  var el = document.getElementById('budget-hint-' + idx);
+  if (el) el.innerHTML = getBudgetHintHtml(cat, sub);
+}
+
 function renderItems() {
   var container = document.getElementById('line-items-container');
   if (!container) return;
@@ -288,10 +318,19 @@ function renderItems() {
     var gstOptions = GST_RATES.map(function(g) {
       return '<option value="' + g + '"' + (item.gst === g ? ' selected' : '') + '>' + g + '%</option>';
     }).join('');
+    var _cat = document.getElementById('po_category') ? document.getElementById('po_category').value : '';
+    var _subs = BUDGET_DATA[_cat] || [];
+    var subCatOptions = '<option value="">— Sub-cat —</option>' + _subs.map(function(s) {
+      return '<option value="' + s + '"' + (item.sub_category === s ? ' selected' : '') + '>' + s + '</option>';
+    }).join('');
+    var _hintId = 'budget-hint-' + idx;
+    var _currentSub = item.sub_category || '';
+    var _hintHtml = getBudgetHintHtml(_cat, _currentSub);
     var row = document.createElement('div');
-    row.style.cssText = 'display:grid;grid-template-columns:3fr 1fr 1.2fr 1.2fr 1fr 1fr 36px;gap:8px;padding:10px 18px;border-bottom:1px solid var(--border);align-items:center;';
+    row.style.cssText = 'display:grid;grid-template-columns:2.5fr 1.5fr 1fr 1.2fr 1.2fr 1fr 1fr 36px;gap:8px;padding:10px 18px;border-bottom:1px solid var(--border);align-items:center;';
     row.innerHTML =
       '<input type="text" class="form-control" placeholder="Item description" style="font-size:0.84rem;" value="' + (item.description||'').replace(/"/g,'\"') + '" oninput="items[' + idx + '].description=this.value">' +
+      '<div style="display:flex;flex-direction:column;gap:3px;"><select class="form-control" style="font-size:0.84rem;" onchange="items[' + idx + '].sub_category=this.value;updateLineItemBudgetHint(' + idx + ',this.value)">' + subCatOptions + '</select><span id="' + _hintId + '" style="font-size:0.72rem;font-weight:600;">' + _hintHtml + '</span></div>' +
       '<select class="form-control" style="font-size:0.84rem;" onchange="items[' + idx + '].unit=this.value">' + unitOptions + '</select>' +
       '<input type="number" class="form-control" style="font-size:0.84rem;text-align:right;" min="0.001" step="0.001" value="' + item.qty + '" oninput="items[' + idx + '].qty=parseFloat(this.value)||0;calcItem(' + idx + ');updateTotals();">' +
       '<input type="number" class="form-control" style="font-size:0.84rem;text-align:right;" min="0" step="0.01" value="' + item.rate + '" oninput="items[' + idx + '].rate=parseFloat(this.value)||0;calcItem(' + idx + ');updateTotals();">' +
@@ -306,7 +345,7 @@ function renderItems() {
 }
 
 function addLineItem() {
-  items.push({description:'', unit:'nos', qty:1, rate:0, gst:18, total:0});
+  items.push({description:'', sub_category:'', unit:'nos', qty:1, rate:0, gst:18, total:0});
   renderItems();
 }
 

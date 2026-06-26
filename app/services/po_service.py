@@ -19,6 +19,33 @@ from app.schemas.po import POCreate, POLineItemCreate, POApproveRequest
 from app.services.approval_engine import ApprovalEngine, POStateMachine
 
 
+# ── Fixed clause text per PO type ───────────────────────────────────────────
+# Single source of truth for default Terms & Conditions text shown when a
+# requester opens a New PO form. Editable by the requester before submit —
+# this only pre-fills the textareas, it does not lock the fields.
+# Fill in the real wording here when ready; empty string = no pre-fill.
+PO_TYPE_CLAUSES = {
+    "service": {
+        "penalty_clauses":    "",
+        "delivery_terms":     "",
+        "warranty_terms":     "",
+        "special_conditions": "",
+    },
+    "supply": {
+        "penalty_clauses":    "",
+        "delivery_terms":     "",
+        "warranty_terms":     "",
+        "special_conditions": "",
+    },
+    "technology": {
+        "penalty_clauses":    "",
+        "delivery_terms":     "",
+        "warranty_terms":     "",
+        "special_conditions": "",
+    },
+}
+
+
 class POService:
 
     # ── PO Number Generation ──────────────────────────────────────────────────
@@ -59,6 +86,7 @@ class POService:
 
             line_items.append(POLineItem(
                 sort_order=i,
+                sub_category=getattr(item_data, 'sub_category', None),
                 description=item_data.description,
                 unit_of_measure=item_data.unit_of_measure,
                 quantity=item_data.quantity,
@@ -99,57 +127,67 @@ class POService:
             required_levels = _levels_with_approvers + 1 if _levels_with_approvers else 2
         po_number = await POService.generate_po_number(session)
 
-        # Check budget if site_id provided
+        # per-line-item sub_category budget check
+        # Groups line items by sub_category and checks each group's total
+        # against that sub_category's remaining budget.
+        # If ANY sub_category is over budget, the whole PO is flagged.
         exceeds_budget = False
         budget_category_id = None
         if hasattr(data, 'site_id') and data.site_id:
             from app.models.models import BudgetCategory
             from sqlalchemy import select as _select, func as _func
             from uuid import UUID as _BUUID
+            from collections import defaultdict
 
-            if hasattr(data, 'sub_category') and data.sub_category:
-                # Specific sub-category budget check
-                budget_q = _select(BudgetCategory).where(
-                    BudgetCategory.site_id == _BUUID(str(data.site_id)),
-                    BudgetCategory.category == data.po_category,
-                    BudgetCategory.sub_category == data.sub_category,
-                    BudgetCategory.is_active == True,
-                )
-                budget_result = await session.execute(budget_q)
-                budget_cat = budget_result.scalars().first()
-                if budget_cat:
-                    budget_category_id = budget_cat.id
-                    remaining = budget_cat.budget_amount - budget_cat.spent_amount
-                    if grand_total > remaining:
-                        exceeds_budget = True
-            else:
-                # No sub-category — check total budget for entire category
-                agg_q = _select(
-                    _func.sum(BudgetCategory.budget_amount).label("total_budget"),
-                    _func.sum(BudgetCategory.spent_amount).label("total_spent"),
-                ).where(
-                    BudgetCategory.site_id == _BUUID(str(data.site_id)),
-                    BudgetCategory.category == data.po_category,
-                    BudgetCategory.is_active == True,
-                )
-                agg_result = await session.execute(agg_q)
-                agg = agg_result.first()
-                if agg and agg.total_budget:
-                    total_budget = float(agg.total_budget or 0)
-                    total_spent = float(agg.total_spent or 0)
-                    remaining = total_budget - total_spent
-                    if float(grand_total) > remaining:
-                        exceeds_budget = True
-                        # Use first active budget category for reference
-                        first_cat_q = _select(BudgetCategory).where(
-                            BudgetCategory.site_id == _BUUID(str(data.site_id)),
-                            BudgetCategory.category == data.po_category,
-                            BudgetCategory.is_active == True,
-                        ).limit(1)
-                        first_cat_result = await session.execute(first_cat_q)
-                        first_cat = first_cat_result.scalars().first()
-                        if first_cat:
-                            budget_category_id = first_cat.id
+            # Group line item totals by sub_category
+            _sub_totals = defaultdict(Decimal)
+            for _item in data.line_items:
+                _sub = getattr(_item, 'sub_category', None)
+                _amt = _item.quantity * _item.unit_rate
+                _amt_with_gst = _amt + (_amt * _item.gst_percent / 100)
+                _sub_totals[_sub or '__none__'] += _amt_with_gst
+
+            for _sub_key, _sub_total in _sub_totals.items():
+                _sub_val = None if _sub_key == '__none__' else _sub_key
+                if _sub_val:
+                    # Check specific sub-category budget
+                    _bq = _select(BudgetCategory).where(
+                        BudgetCategory.site_id == _BUUID(str(data.site_id)),
+                        BudgetCategory.category == data.po_category,
+                        BudgetCategory.sub_category == _sub_val,
+                        BudgetCategory.is_active == True,
+                    )
+                    _bc = (await session.execute(_bq)).scalars().first()
+                    if _bc:
+                        if budget_category_id is None:
+                            budget_category_id = _bc.id
+                        _remaining = _bc.budget_amount - _bc.spent_amount
+                        if _sub_total > _remaining:
+                            exceeds_budget = True
+                else:
+                    # No sub_category on line item — check category total
+                    _agg_q = _select(
+                        _func.sum(BudgetCategory.budget_amount).label('total_budget'),
+                        _func.sum(BudgetCategory.spent_amount).label('total_spent'),
+                    ).where(
+                        BudgetCategory.site_id == _BUUID(str(data.site_id)),
+                        BudgetCategory.category == data.po_category,
+                        BudgetCategory.is_active == True,
+                    )
+                    _agg = (await session.execute(_agg_q)).first()
+                    if _agg and _agg.total_budget:
+                        _remaining = float(_agg.total_budget or 0) - float(_agg.total_spent or 0)
+                        if float(_sub_total) > _remaining:
+                            exceeds_budget = True
+                            if budget_category_id is None:
+                                _first_q = _select(BudgetCategory).where(
+                                    BudgetCategory.site_id == _BUUID(str(data.site_id)),
+                                    BudgetCategory.category == data.po_category,
+                                    BudgetCategory.is_active == True,
+                                ).limit(1)
+                                _first = (await session.execute(_first_q)).scalars().first()
+                                if _first:
+                                    budget_category_id = _first.id
 
         from uuid import UUID as _UUID
         po = PurchaseOrder(
@@ -390,6 +428,7 @@ class POService:
             .options(
                 selectinload(PurchaseOrder.requester),
                 selectinload(PurchaseOrder.vendor),
+                selectinload(PurchaseOrder.site),
                 selectinload(PurchaseOrder.department),
                 selectinload(PurchaseOrder.project),
                 selectinload(PurchaseOrder.line_items),
