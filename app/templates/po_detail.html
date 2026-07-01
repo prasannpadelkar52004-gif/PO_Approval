@@ -154,6 +154,7 @@
             <tr>
               <th>#</th>
               <th>Description</th>
+              <th>Sub-Category</th>
               <th>Unit</th>
               <th style="text-align:right;">Qty</th>
               <th style="text-align:right;">Rate (₹)</th>
@@ -167,6 +168,7 @@
             <tr>
               <td class="text-muted text-sm">{{ loop.index }}</td>
               <td style="font-weight:500;">{{ item.description }}</td>
+              <td class="text-muted text-sm">{{ item.sub_category or "-" }}</td>
               <td class="text-muted text-sm">{{ item.unit_of_measure }}</td>
               <td style="text-align:right;" class="font-mono text-sm">{{ item.quantity }}</td>
               <td style="text-align:right;" class="font-mono text-sm">{{ "{:,.2f}".format(item.unit_rate) }}</td>
@@ -178,19 +180,19 @@
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="5"></td>
+              <td colspan="6"></td>
               <td style="text-align:right;font-size:0.8rem;color:var(--text-muted);padding-right:14px;">Subtotal</td>
               <td></td>
               <td style="text-align:right;" class="font-mono">₹{{ "{:,.2f}".format(po.subtotal) }}</td>
             </tr>
             <tr>
-              <td colspan="5"></td>
+              <td colspan="6"></td>
               <td style="text-align:right;font-size:0.8rem;color:var(--text-muted);padding-right:14px;">GST</td>
               <td></td>
               <td style="text-align:right;" class="font-mono">₹{{ "{:,.2f}".format(po.gst_amount) }}</td>
             </tr>
             <tr style="background:#EFF6FF;">
-              <td colspan="5"></td>
+              <td colspan="6"></td>
               <td style="text-align:right;font-size:0.82rem;font-weight:700;padding-right:14px;color:var(--blue);">TOTAL</td>
               <td></td>
               <td style="text-align:right;font-size:1.05rem;font-weight:800;color:var(--blue);" class="font-mono">₹{{ "{:,.2f}".format(po.total_amount) }}</td>
