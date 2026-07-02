@@ -4,6 +4,7 @@ HTML Routes — serves Jinja2 templates for the browser UI.
 from datetime import timedelta, datetime
 from uuid import UUID
 
+import re
 from fastapi import APIRouter, Depends, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -19,6 +20,24 @@ from app.models.models import (
 from app.api.v1.deps import verify_password, create_access_token
 
 router = APIRouter(include_in_schema=False)
+
+def _sanitize_download_filename(raw: str, default: str, ext: str) -> str:
+    """Sanitize a user-supplied filename for use in Content-Disposition.
+    Falls back to `default` if raw is empty/invalid after cleaning."""
+    if not raw:
+        return default
+    name = raw.strip()
+    # strip any path separators / illegal filesystem characters
+    name = re.sub(r'[\\/:*?"<>|\r\n]', "", name)
+    name = name.strip(" .")
+    if not name:
+        return default
+    # cap length to keep headers sane
+    name = name[:150]
+    if not name.lower().endswith(ext):
+        name = f"{name}{ext}"
+    return name
+
 templates = Jinja2Templates(directory="app/templates")
 
 
@@ -1251,6 +1270,7 @@ async def authorize_budget(po_id: str, request: Request, session: AsyncSession =
 async def download_po_pdf(
     po_id: str,
     request: Request,
+    filename: str = None,
     session: AsyncSession = Depends(get_session),
 ):
     """Unified PO + LOI document download as PDF."""
@@ -1288,7 +1308,7 @@ async def download_po_pdf(
         print("PDF ERROR:", traceback.format_exc())
         raise HTTPException(500, f"PDF generation failed: {e}")
 
-    filename = f"{po.po_number}_LOI.pdf"
+    filename = _sanitize_download_filename(filename, f"{po.po_number}_LOI.pdf", ".pdf")
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -1300,6 +1320,7 @@ async def download_po_pdf(
 async def download_po_docx(
     po_id: str,
     request: Request,
+    filename: str = None,
     session: AsyncSession = Depends(get_session),
 ):
     """Unified PO + LOI document download as Word DOCX."""
@@ -1336,7 +1357,7 @@ async def download_po_docx(
         print("DOCX ERROR:", traceback.format_exc())
         raise HTTPException(500, f"DOCX generation failed: {e}")
 
-    filename = f"{po.po_number}_LOI.docx"
+    filename = _sanitize_download_filename(filename, f"{po.po_number}_LOI.docx", ".docx")
     return Response(
         content=docx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
