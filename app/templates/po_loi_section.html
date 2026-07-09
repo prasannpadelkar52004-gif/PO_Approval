@@ -1,12 +1,13 @@
 {# LOI Editor Section — included in po_form_service/supply/technology.html #}
-{# Requires: loi_articles (list of {number, title, body}), po_type #}
+{# Requires: loi_articles (list of {number, title, body, src, idx, edited, included}), po_type #}
+{# Must be included INSIDE the main <form id="po-form"> so loi_articles_json submits with the PO. #}
 
 <div class="card" id="loi-section" style="margin-top:20px;">
   <div class="card-header" style="cursor:pointer;" onclick="toggleLOI()">
     <span class="card-title">
       📄 LOI / Letter of Intent
       <span style="font-size:0.78rem;font-weight:400;color:var(--text-muted);margin-left:8px;">
-        — Click to expand, edit, and download
+        — Click to expand, select/deselect and edit articles
       </span>
     </span>
     <span id="loi-toggle-icon" style="color:var(--text-muted);font-size:1.1rem;">▼</span>
@@ -15,50 +16,74 @@
   <div id="loi-body" style="display:none;">
     <div class="card-body" style="padding:14px 22px 8px;">
       <div class="alert alert-info" style="margin-bottom:16px;font-size:0.83rem;">
-        The LOI is pre-filled from this PO's data. You can edit any article before downloading.
-        Downloading the LOI does <strong>not</strong> submit the PO — use the Submit button above for that.
+        Untick the checkbox on any article you don't want — it stays here (greyed out)
+        so you can tick it back on, but it will <strong>not</strong> appear in the LOI,
+        and the remaining articles renumber automatically.
+        Text in <strong>{curly_braces}</strong> (e.g. <code>{vendor_name}</code>, <code>{total_amount}</code>)
+        is auto-filled from the PO data when the document is generated.
+        Use <strong>+ Add Article</strong> at the bottom to append your own.
       </div>
 
       <div id="loi-articles-container">
         {% for article in loi_articles %}
-        <div class="loi-article" style="margin-bottom:18px;">
+        <div class="loi-article"
+             data-src="{{ article.src|default('tpl') }}"
+             data-idx="{{ article.idx if article.idx is defined and article.idx is not none else loop.index0 }}"
+             data-edited="{{ '1' if article.edited|default(false) else '0' }}"
+             data-included="{{ '0' if article.included is defined and not article.included else '1' }}"
+             style="margin-bottom:18px;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-            <span style="font-size:0.78rem;font-weight:700;color:var(--slate);white-space:nowrap;">ARTICLE {{ article.number }}</span>
+            <input type="checkbox"
+                   class="loi-include-cb"
+                   title="Include this article in the LOI"
+                   onchange="toggleLOIInclude(this)"
+                   {% if not (article.included is defined and not article.included) %}checked{% endif %}
+                   style="width:16px;height:16px;flex:none;cursor:pointer;accent-color:var(--slate);">
+            <span class="loi-num-label" style="font-size:0.78rem;font-weight:700;color:var(--slate);white-space:nowrap;">
+              ARTICLE <span class="loi-num">{{ loop.index }}</span>
+            </span>
             <input
               type="text"
               class="form-control loi-article-title-input"
-              data-article-number="{{ article.number }}"
               value="{{ article.title }}"
               style="font-size:0.82rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:var(--text-mid);padding:4px 10px;height:auto;"
-              oninput="onLOIArticleEdit()"
+              oninput="onLOIArticleEdit(this, false)"
               placeholder="Article title..."
             >
           </div>
           <textarea
             class="form-control loi-article-textarea"
-            data-article-number="{{ article.number }}"
-            data-article-title="{{ article.title }}"
             rows="4"
             style="font-size:0.83rem;font-family:'DM Mono',monospace;resize:vertical;"
-            oninput="onLOIArticleEdit()"
+            oninput="onLOIArticleEdit(this, true)"
           >{{ article.body }}</textarea>
         </div>
         {% endfor %}
       </div>
 
-      <!-- download-buttons-removed -->
-      <div style="padding:8px 0 12px;">
-        <span style="font-size:0.8rem;color:var(--text-muted);">💡 Download the LOI after saving the PO as Draft — use the Download buttons on the PO detail page.</span>
+      <div style="padding:4px 0 14px;display:flex;align-items:center;gap:14px;">
+        <button type="button" class="btn btn-primary" onclick="addLOIArticle()"
+                style="padding:6px 16px;font-size:0.85rem;">
+          + Add Article
+        </button>
+        <span id="loi-count-label" style="font-size:0.8rem;color:var(--text-muted);"></span>
+      </div>
+      <div style="padding:0 0 12px;">
+        <span style="font-size:0.8rem;color:var(--text-muted);">
+          💡 Download the LOI after saving the PO — use the Download buttons on the PO detail page.
+        </span>
       </div>
     </div>
   </div>
+
+  {# Submitted with the PO form; kept in sync by syncLOIArticlesField() #}
+  <input type="hidden" name="loi_articles_json" id="loi_articles_json" value="">
 </div>
 
 <script>
 // ── LOI Editor JS ─────────────────────────────────────────────────────────────
 
 var LOI_PO_TYPE = "{{ po_type }}";
-var LOI_EDITED  = false;
 
 function toggleLOI() {
   var body = document.getElementById('loi-body');
@@ -72,74 +97,137 @@ function toggleLOI() {
   }
 }
 
-function onLOIArticleEdit() {
-  LOI_EDITED = true;
-}
-
-function getLOIArticlesJson() {
-  var articles = [];
-  document.querySelectorAll('.loi-article-textarea').forEach(function(ta) {
-    var num = ta.dataset.articleNumber;
-    // Find the corresponding title input
-    var titleInput = document.querySelector(
-      '.loi-article-title-input[data-article-number="' + num + '"]'
-    );
-    var title = titleInput ? titleInput.value : ta.dataset.articleTitle;
-    articles.push({
-      number: num,
-      title:  title,
-      body:   ta.value,
-    });
-  });
-  return JSON.stringify(articles);
-}
-
-function getFormDataForLOI() {
-  // Collect current form values to send with the LOI request
-  // so the server can fill any remaining placeholders
-  var data = {};
-  var fields = ['vendor_id', 'description', 'delivery_address',
-                'required_by', 'penalty_clauses', 'delivery_terms',
-                'warranty_terms', 'special_conditions', 'site_id',
-                'po_category', 'priority', 'payment_terms'];
-  fields.forEach(function(f) {
-    var el = document.querySelector('[name="' + f + '"]');
-    if (el) data[f] = el.value || '';
-  });
-  // Also include the current grand total
-  var totalEl = document.getElementById('grand-total-display');
-  data['total_display'] = totalEl ? totalEl.textContent.replace('₹', '').replace(/,/g, '') : '0';
-  return data;
-}
-
-function downloadLOI(format) {
-  var status = document.getElementById('loi-download-status');
-  status.textContent = 'Generating ' + format.toUpperCase() + '...';
-
-  var articlesJson = getLOIArticlesJson();
-  var formData     = getFormDataForLOI();
-
-  // Build a hidden form and POST it — this triggers a file download
-  var form = document.createElement('form');
-  form.method = 'POST';
-  form.action = '/pos/loi/download/' + LOI_PO_TYPE + '/' + format;
-  form.target = '_blank';  // open in new tab so current form isn't navigated away
-
-  function addField(name, val) {
-    var inp = document.createElement('input');
-    inp.type  = 'hidden';
-    inp.name  = name;
-    inp.value = val;
-    form.appendChild(inp);
+// Called on any title/body input. bodyChanged=true marks the article body as
+// user-edited so the literal text is stored instead of the template reference.
+function onLOIArticleEdit(el, bodyChanged) {
+  if (bodyChanged) {
+    var wrap = el.closest('.loi-article');
+    if (wrap) wrap.dataset.edited = '1';
   }
-
-  addField('articles_json', articlesJson);
-  addField('form_data_json', JSON.stringify(formData));
-
-  document.body.appendChild(form);
-  form.submit();
-  document.body.removeChild(form);
-
-  setTimeout(function() { status.textContent = ''; }, 3000);
+  syncLOIArticlesField();
 }
+
+// Checkbox toggled: mark included/excluded, grey out excluded, renumber + sync.
+function toggleLOIInclude(cb) {
+  var wrap = cb.closest('.loi-article');
+  if (!wrap) return;
+  wrap.dataset.included = cb.checked ? '1' : '0';
+  applyLOIIncludeStyle(wrap);
+  renumberLOIArticles();
+  syncLOIArticlesField();
+}
+
+function applyLOIIncludeStyle(wrap) {
+  var included = wrap.dataset.included !== '0';
+  var titleInput = wrap.querySelector('.loi-article-title-input');
+  var ta = wrap.querySelector('.loi-article-textarea');
+  var numLabel = wrap.querySelector('.loi-num-label');
+  if (titleInput) { titleInput.disabled = !included; titleInput.style.opacity = included ? '' : '0.45'; }
+  if (ta)         { ta.disabled = !included;         ta.style.opacity = included ? '' : '0.45'; }
+  if (numLabel)   { numLabel.style.opacity = included ? '' : '0.45'; }
+  wrap.style.background = included ? '' : 'rgba(0,0,0,0.03)';
+}
+
+// Number only the included articles sequentially; excluded ones show "—".
+function renumberLOIArticles() {
+  var n = 0, total = 0, incl = 0;
+  document.querySelectorAll('#loi-articles-container .loi-article').forEach(function(wrap) {
+    total++;
+    var span = wrap.querySelector('.loi-num');
+    if (wrap.dataset.included !== '0') {
+      n++; incl++;
+      if (span) span.textContent = n;
+    } else {
+      if (span) span.textContent = '—';
+    }
+  });
+  var label = document.getElementById('loi-count-label');
+  if (label) label.textContent = incl + ' of ' + total + ' articles selected for the LOI';
+}
+
+function addLOIArticle() {
+  var container = document.getElementById('loi-articles-container');
+
+  var wrap = document.createElement('div');
+  wrap.className = 'loi-article';
+  wrap.dataset.src = 'custom';
+  wrap.dataset.edited = '1';
+  wrap.dataset.included = '1';
+  wrap.style.marginBottom = '18px';
+
+  var header = document.createElement('div');
+  header.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:6px;';
+
+  var cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.className = 'loi-include-cb';
+  cb.checked = true;
+  cb.title = 'Include this article in the LOI';
+  cb.style.cssText = 'width:16px;height:16px;flex:none;cursor:pointer;accent-color:var(--slate);';
+  cb.addEventListener('change', function() { toggleLOIInclude(cb); });
+
+  var label = document.createElement('span');
+  label.className = 'loi-num-label';
+  label.style.cssText = 'font-size:0.78rem;font-weight:700;color:var(--slate);white-space:nowrap;';
+  label.innerHTML = 'ARTICLE <span class="loi-num">—</span>';
+
+  var titleInput = document.createElement('input');
+  titleInput.type = 'text';
+  titleInput.className = 'form-control loi-article-title-input';
+  titleInput.placeholder = 'Article title...';
+  titleInput.style.cssText = 'font-size:0.82rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:var(--text-mid);padding:4px 10px;height:auto;';
+  titleInput.addEventListener('input', function() { onLOIArticleEdit(titleInput, false); });
+
+  header.appendChild(cb);
+  header.appendChild(label);
+  header.appendChild(titleInput);
+
+  var ta = document.createElement('textarea');
+  ta.className = 'form-control loi-article-textarea';
+  ta.rows = 5;
+  ta.placeholder = 'Article text... (you can use placeholders like {vendor_name}, {total_amount}, {site_name})';
+  ta.style.cssText = 'font-size:0.83rem;font-family:\'DM Mono\',monospace;resize:vertical;';
+  ta.addEventListener('input', function() { onLOIArticleEdit(ta, true); });
+
+  wrap.appendChild(header);
+  wrap.appendChild(ta);
+  container.appendChild(wrap);
+
+  renumberLOIArticles();
+  syncLOIArticlesField();
+  titleInput.focus();
+}
+
+// Serialize the SELECTED articles into the hidden form field.
+// Deselected articles are simply not stored — so they don't appear in the LOI
+// and the stored set renumbers 1..N automatically on the backend.
+// Template articles that were NOT body-edited are stored as references
+// ({src:"tpl", idx, body:null}) so placeholders fill with real PO data later.
+function syncLOIArticlesField() {
+  var entries = [];
+  document.querySelectorAll('#loi-articles-container .loi-article').forEach(function(wrap) {
+    if (wrap.dataset.included === '0') return;  // deselected -> excluded
+    var titleInput = wrap.querySelector('.loi-article-title-input');
+    var ta = wrap.querySelector('.loi-article-textarea');
+    var src = wrap.dataset.src === 'custom' ? 'custom' : 'tpl';
+    var entry = {
+      src:   src,
+      title: titleInput ? titleInput.value : '',
+      body:  (wrap.dataset.edited === '1' || src === 'custom') ? (ta ? ta.value : '') : null,
+    };
+    if (src === 'tpl') {
+      entry.idx = parseInt(wrap.dataset.idx, 10);
+    }
+    entries.push(entry);
+  });
+  var field = document.getElementById('loi_articles_json');
+  if (field) field.value = JSON.stringify(entries);
+}
+
+// Initialize on load: apply grey-out to any pre-deselected articles (error
+// re-render case), number the selected ones, and fill the hidden field so an
+// untouched LOI section still submits a valid (default) article set.
+document.querySelectorAll('#loi-articles-container .loi-article').forEach(applyLOIIncludeStyle);
+renumberLOIArticles();
+syncLOIArticlesField();
 </script>

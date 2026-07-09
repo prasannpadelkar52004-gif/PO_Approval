@@ -243,6 +243,9 @@ class PurchaseOrder(TimestampMixin, table=True):
     rejection_reason:   Optional[str] = Field(default=None, sa_column=Column(Text))
     return_reason:      Optional[str] = Field(default=None, sa_column=Column(Text))
     penalty_clauses:    Optional[str] = Field(default=None, sa_column=Column(Text))
+    # Customized LOI article/clause set (JSON string). NULL = use the default
+    # template articles for this PO type. See LOIService.resolve_articles().
+    loi_articles:       Optional[str] = Field(default=None, sa_column=Column(Text))
     delivery_terms:     Optional[str] = Field(default=None, sa_column=Column(Text))
     warranty_terms:     Optional[str] = Field(default=None, sa_column=Column(Text))
     special_conditions: Optional[str] = Field(default=None, sa_column=Column(Text))
