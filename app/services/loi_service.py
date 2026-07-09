@@ -327,24 +327,30 @@ def _amount_to_words(amount: float) -> str:
         return ""
 
 
+class _SafeFormatDict(dict):
+    """dict for str.format_map that leaves unknown {placeholders} untouched."""
+    def __missing__(self, key):
+        return "{" + key + "}"
+
+
+def _safe_fill(text: str, variables: dict) -> str:
+    """Fill {placeholders} in text; never raise on stray braces or unknown keys."""
+    if not text:
+        return text or ""
+    try:
+        return text.format_map(_SafeFormatDict(variables))
+    except Exception:
+        # Unbalanced braces etc. — return the text as-is rather than failing
+        return text
+
+
 class LOIService:
 
     @staticmethod
-    def get_template_articles(po_type: str) -> list[dict]:
-        """Return a copy of the articles for the given PO type."""
-        return [
-            {"number": a["number"], "title": a["title"], "body": a["body"]}
-            for a in LOI_TEMPLATES.get(po_type, TECHNOLOGY_ARTICLES)
-        ]
-
-    @staticmethod
-    def fill_articles(po_type: str, po_data: dict[str, Any]) -> list[dict]:
-        """
-        Fill placeholder variables in articles with actual PO data.
-        Returns list of {number, title, body} dicts with placeholders replaced.
-        """
+    def _build_variables(po_data: dict[str, Any]) -> dict[str, str]:
+        """Build the placeholder -> value map used to fill article bodies."""
         total = float(po_data.get("total_amount", 0))
-        variables = {
+        return {
             "vendor_name":        po_data.get("vendor_name", "[VENDOR NAME]"),
             "vendor_contact":     po_data.get("vendor_contact", "[VENDOR CONTACT]"),
             "po_number":          po_data.get("po_number", "[PO NUMBER]"),
@@ -359,18 +365,101 @@ class LOIService:
             "special_conditions": po_data.get("special_conditions") or "None.",
             "site_name":          po_data.get("site_name", "[SITE NAME]"),
         }
+
+    @staticmethod
+
+    def get_template_articles(po_type: str) -> list[dict]:
+        """Return a copy of the articles for the given PO type."""
+        return [
+            {"number": a["number"], "title": a["title"], "body": a["body"]}
+            for a in LOI_TEMPLATES.get(po_type, TECHNOLOGY_ARTICLES)
+        ]
+
+    @staticmethod
+    def fill_articles(po_type: str, po_data: dict[str, Any]) -> list[dict]:
+        """
+        Fill placeholder variables in articles with actual PO data.
+        Returns list of {number, title, body} dicts with placeholders replaced.
+        """
+        variables = LOIService._build_variables(po_data)
         filled = []
         for article in LOIService.get_template_articles(po_type):
-            try:
-                body = article["body"].format(**variables)
-            except KeyError:
-                body = article["body"]
             filled.append({
                 "number": article["number"],
                 "title":  article["title"],
-                "body":   body,
+                "body":   _safe_fill(article["body"], variables),
             })
         return filled
+
+    @staticmethod
+    def resolve_articles(
+        po_type: str,
+        stored_json: str | None,
+        po_data: dict[str, Any],
+    ) -> list[dict]:
+        """
+        Resolve the final article list for a PO.
+
+        If the PO has a customized article set (stored_json, saved from the PO
+        creation form), use it; otherwise fall back to the default template.
+
+        stored_json is a JSON list of entries:
+          {"src": "tpl", "idx": <template index>, "title": "...", "body": null}
+            -> default template article kept; body null means "use the template
+               body" (so placeholders are filled with real PO data here).
+               A non-null body means the user edited the text on the form.
+          {"src": "custom", "title": "...", "body": "..."}
+            -> article added by the user on the form.
+
+        Articles are renumbered sequentially 1..N in stored order.
+        """
+        import json as _json
+
+        if not stored_json:
+            return LOIService.fill_articles(po_type, po_data)
+        try:
+            entries = _json.loads(stored_json)
+            if not isinstance(entries, list):
+                raise ValueError("loi_articles is not a list")
+        except Exception:
+            return LOIService.fill_articles(po_type, po_data)
+
+        tpl_articles = LOI_TEMPLATES.get(po_type, TECHNOLOGY_ARTICLES)
+        variables = LOIService._build_variables(po_data)
+
+        out: list[dict] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            src = entry.get("src")
+            if src not in ("tpl", "custom"):
+                continue
+            title = str(entry.get("title") or "").strip()
+            body = entry.get("body")
+            if src == "tpl":
+                idx = entry.get("idx")
+                tpl = (
+                    tpl_articles[idx]
+                    if isinstance(idx, int) and 0 <= idx < len(tpl_articles)
+                    else None
+                )
+                if tpl is None and body is None:
+                    # Dangling template reference (e.g. template shrank) — skip
+                    continue
+                if tpl:
+                    if body is None:
+                        body = tpl["body"]
+                    if not title:
+                        title = tpl["title"]
+            if body is None:
+                body = ""
+            out.append({
+                "number": str(len(out) + 1),
+                "title":  title or "UNTITLED",
+                "body":   _safe_fill(str(body), variables),
+            })
+
+        return out or LOIService.fill_articles(po_type, po_data)
 
     @staticmethod
     def generate_pdf(

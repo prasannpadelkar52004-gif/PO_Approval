@@ -408,20 +408,14 @@ async def _render_po_type_form(po_type: str, template_name: str, request: Reques
             _site_budget_remaining.get(_site_key, 0) + _rem2
 
     from app.services.loi_service import LOIService
-    _loi_articles = LOIService.fill_articles(po_type, {
-        "vendor_name":      "",
-        "vendor_contact":   "",
-        "po_number":        "DRAFT",
-        "total_amount":     0,
-        "description":      "",
-        "delivery_address": "",
-        "required_by":      "",
-        "penalty_clauses":  "",
-        "delivery_terms":   "",
-        "warranty_terms":   "",
-        "special_conditions": "",
-        "site_name":        "",
-    })
+    # Raw template articles (placeholders like {vendor_name} left visible —
+    # they auto-fill from real PO data at download time). src/idx let the
+    # editor store unedited articles as template references.
+    _loi_articles = [
+        {"number": str(i + 1), "title": a["title"], "body": a["body"],
+         "src": "tpl", "idx": i, "edited": False}
+        for i, a in enumerate(LOIService.get_template_articles(po_type))
+    ]
 
     return templates.TemplateResponse(template_name, {
         "request":        request,
@@ -522,7 +516,9 @@ async def po_detail(
         "site_name":          _site_name,
     }
     _po_type = getattr(po, "po_type", None) or "technology"
-    _loi_articles = _LOI.fill_articles(_po_type, _po_data_for_loi)
+    _loi_articles = _LOI.resolve_articles(
+        _po_type, getattr(po, "loi_articles", None), _po_data_for_loi
+    )
     _articles_json = _json.dumps(_loi_articles)
     _form_data_json = _json.dumps({"total_display": str(float(po.total_amount))})
     _loi_hidden_fields = (
@@ -657,6 +653,143 @@ async def create_po_technology(request: Request, session: AsyncSession = Depends
     return await create_po_submit(request, session)
 
 
+# ── LOI article customization helpers ─────────────────────────────────────────
+
+def _normalize_loi_articles_json(raw: str, po_type: str) -> str | None:
+    """
+    Validate + normalize the loi_articles_json submitted from the PO form.
+    Returns a cleaned JSON string to store on the PO, or None if the payload
+    is missing/invalid OR identical to the default template (nothing to store).
+    """
+    import json
+    from app.services.loi_service import LOI_TEMPLATES, TECHNOLOGY_ARTICLES
+
+    if not raw or len(raw) > 300_000:
+        return None
+    try:
+        entries = json.loads(raw)
+        if not isinstance(entries, list) or len(entries) > 200:
+            return None
+    except Exception:
+        return None
+
+    tpl_articles = LOI_TEMPLATES.get(po_type, TECHNOLOGY_ARTICLES)
+    cleaned = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        src = e.get("src")
+        if src not in ("tpl", "custom"):
+            continue
+        title = str(e.get("title") or "")[:300]
+        body = e.get("body")
+        if body is not None:
+            body = str(body)[:20_000]
+        item = {"src": src, "title": title, "body": body}
+        if src == "tpl":
+            idx = e.get("idx")
+            if not isinstance(idx, int) or not (0 <= idx < len(tpl_articles)):
+                continue
+            item["idx"] = idx
+        else:
+            # Custom articles always carry literal text
+            if body is None:
+                item["body"] = ""
+        cleaned.append(item)
+
+    if not cleaned:
+        return None
+
+    # If it's exactly the default set (all template refs, in order, untouched),
+    # store nothing — the PO will use the live template.
+    is_default = (
+        len(cleaned) == len(tpl_articles)
+        and all(
+            c["src"] == "tpl"
+            and c.get("idx") == i
+            and c["body"] is None
+            and c["title"].strip() == tpl_articles[i]["title"].strip()
+            for i, c in enumerate(cleaned)
+        )
+    )
+    if is_default:
+        return None
+
+    return json.dumps(cleaned)
+
+
+def _loi_display_articles_from_json(raw: str, po_type: str) -> list[dict] | None:
+    """
+    Rebuild the LOI editor display list from a submitted loi_articles_json —
+    used to re-render the form after a validation error without losing the
+    user's article selections/edits.
+
+    The stored JSON only contains SELECTED articles, so this rebuilds the full
+    template list and marks template articles missing from the payload as
+    included=False (shown greyed-out with an unticked checkbox), then appends
+    the user's custom articles. Returns None if the payload can't be used.
+    """
+    import json
+    from app.services.loi_service import LOI_TEMPLATES, TECHNOLOGY_ARTICLES
+
+    if not raw:
+        return None
+    try:
+        entries = json.loads(raw)
+        if not isinstance(entries, list):
+            return None
+    except Exception:
+        return None
+
+    tpl_articles = LOI_TEMPLATES.get(po_type, TECHNOLOGY_ARTICLES)
+
+    tpl_selected: dict[int, dict] = {}
+    customs: list[dict] = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        if e.get("src") == "custom":
+            customs.append(e)
+        elif e.get("src") == "tpl":
+            idx = e.get("idx")
+            if isinstance(idx, int) and 0 <= idx < len(tpl_articles):
+                tpl_selected[idx] = e
+
+    out: list[dict] = []
+    num = 0
+    for i, tpl in enumerate(tpl_articles):
+        sel = tpl_selected.get(i)
+        included = sel is not None
+        body = sel.get("body") if sel else None
+        edited = included and body is not None
+        title = (str(sel.get("title") or "") if sel else "") or tpl["title"]
+        if body is None:
+            body = tpl["body"]
+        if included:
+            num += 1
+        out.append({
+            "number":   str(num) if included else "—",
+            "title":    title,
+            "body":     body,
+            "src":      "tpl",
+            "idx":      i,
+            "edited":   edited,
+            "included": included,
+        })
+    for c in customs:
+        num += 1
+        out.append({
+            "number":   str(num),
+            "title":    str(c.get("title") or ""),
+            "body":     str(c.get("body") if c.get("body") is not None else ""),
+            "src":      "custom",
+            "idx":      None,
+            "edited":   True,
+            "included": True,
+        })
+    return out or None
+
+
 @router.post("/pos", response_class=HTMLResponse)
 async def create_po_submit(
     request: Request,
@@ -729,6 +862,19 @@ async def create_po_submit(
 
         po = await POService.create_po(session, po_data, user, chains)
 
+        # Persist customized LOI article set (removals/additions/edits), if any
+        try:
+            _loi_norm = _normalize_loi_articles_json(
+                form.get("loi_articles_json") or "", po_data.po_type or "technology"
+            )
+            if _loi_norm is not None:
+                po.loi_articles = _loi_norm
+                session.add(po)
+                await session.commit()
+        except Exception as _loi_e:
+            import logging
+            logging.getLogger(__name__).warning("LOI articles save failed: %s", _loi_e)
+
         # Save attachments if any
         try:
             import os
@@ -785,12 +931,21 @@ async def create_po_submit(
         vendors = (await session.execute(select(Vendor).where(Vendor.is_active == True))).scalars().all()
         departments = (await session.execute(select(Department).where(Department.is_active == True))).scalars().all()
         projects = (await session.execute(select(Project).where(Project.is_active == True))).scalars().all()
-        _loi_arts = _LOI.fill_articles(_po_type, {
-            "vendor_name": "", "vendor_contact": "", "po_number": "DRAFT",
-            "total_amount": 0, "description": "", "delivery_address": "",
-            "required_by": "", "penalty_clauses": "", "delivery_terms": "",
-            "warranty_terms": "", "special_conditions": "", "site_name": "",
-        })
+        # Preserve the user's LOI customizations across the error re-render;
+        # fall back to the raw template list if none/invalid.
+        _loi_arts = None
+        try:
+            _loi_arts = _loi_display_articles_from_json(
+                _form2.get("loi_articles_json") or "", _po_type
+            )
+        except Exception:
+            _loi_arts = None
+        if not _loi_arts:
+            _loi_arts = [
+                {"number": str(_i + 1), "title": _a["title"], "body": _a["body"],
+                 "src": "tpl", "idx": _i, "edited": False}
+                for _i, _a in enumerate(_LOI.get_template_articles(_po_type))
+            ]
         return templates.TemplateResponse(_tname, {
             "request": request, "current_user": user, "active_page": "po_new",
             "pending_count": 0, "po": None, "po_type": _po_type,
@@ -1299,7 +1454,9 @@ async def download_po_pdf(
 
     po_data = _build_po_data(po)
     po_type = getattr(po, "po_type", None) or "technology"
-    articles = LOIService.fill_articles(po_type, po_data)
+    articles = LOIService.resolve_articles(
+        po_type, getattr(po, "loi_articles", None), po_data
+    )
 
     try:
         pdf_bytes = _generate_unified_pdf(po, po_data, articles)
@@ -1348,7 +1505,9 @@ async def download_po_docx(
 
     po_data = _build_po_data(po)
     po_type = getattr(po, "po_type", None) or "technology"
-    articles = LOIService.fill_articles(po_type, po_data)
+    articles = LOIService.resolve_articles(
+        po_type, getattr(po, "loi_articles", None), po_data
+    )
 
     try:
         docx_bytes = LOIService.generate_docx(po_data, articles)
