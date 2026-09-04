@@ -453,6 +453,11 @@ async def new_po_technology(request: Request, session: AsyncSession = Depends(ge
     return await _render_po_type_form("technology", "po_form_technology.html", request, session)
 
 
+@router.get("/pos/new/material", response_class=HTMLResponse)
+async def new_po_material(request: Request, session: AsyncSession = Depends(get_session)):
+    return await _render_po_type_form("material", "po_form_material.html", request, session)
+
+
 # ── PO Detail ─────────────────────────────────────────────────────────────────
 
 @router.get("/pos/{po_id}", response_class=HTMLResponse)
@@ -650,6 +655,11 @@ async def create_po_supply(request: Request, session: AsyncSession = Depends(get
 
 @router.post("/pos/technology", response_class=HTMLResponse)
 async def create_po_technology(request: Request, session: AsyncSession = Depends(get_session)):
+    return await create_po_submit(request, session)
+
+
+@router.post("/pos/material", response_class=HTMLResponse)
+async def create_po_material(request: Request, session: AsyncSession = Depends(get_session)):
     return await create_po_submit(request, session)
 
 
@@ -926,6 +936,7 @@ async def create_po_submit(
             "service": "po_form_service.html",
             "supply": "po_form_supply.html",
             "technology": "po_form_technology.html",
+            "material": "po_form_material.html",
         }
         _tname = _tmap.get(_po_type, "po_form_service.html")
         vendors = (await session.execute(select(Vendor).where(Vendor.is_active == True))).scalars().all()
@@ -1454,18 +1465,32 @@ async def download_po_pdf(
 
     po_data = _build_po_data(po)
     po_type = getattr(po, "po_type", None) or "technology"
-    articles = LOIService.resolve_articles(
-        po_type, getattr(po, "loi_articles", None), po_data
-    )
 
     try:
-        pdf_bytes = _generate_unified_pdf(po, po_data, articles)
+        if po_type == "material":
+            line_items = [
+                {
+                    "description": li.description,
+                    "unit": li.unit_of_measure,
+                    "qty": float(li.quantity),
+                    "rate": float(li.unit_rate),
+                    "gst": float(li.gst_percent),
+                }
+                for li in (po.line_items or [])
+            ]
+            pdf_bytes = LOIService.generate_material_po_pdf(po_data, line_items)
+        else:
+            articles = LOIService.resolve_articles(
+                po_type, getattr(po, "loi_articles", None), po_data
+            )
+            pdf_bytes = _generate_unified_pdf(po, po_data, articles)
     except Exception as e:
         import traceback
         print("PDF ERROR:", traceback.format_exc())
         raise HTTPException(500, f"PDF generation failed: {e}")
 
-    filename = _sanitize_download_filename(filename, f"{po.po_number}_LOI.pdf", ".pdf")
+    default_name = f"{po.po_number}_PO.pdf" if po_type == "material" else f"{po.po_number}_LOI.pdf"
+    filename = _sanitize_download_filename(filename, default_name, ".pdf")
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -1505,18 +1530,32 @@ async def download_po_docx(
 
     po_data = _build_po_data(po)
     po_type = getattr(po, "po_type", None) or "technology"
-    articles = LOIService.resolve_articles(
-        po_type, getattr(po, "loi_articles", None), po_data
-    )
 
     try:
-        docx_bytes = LOIService.generate_docx(po_data, articles)
+        if po_type == "material":
+            line_items = [
+                {
+                    "description": li.description,
+                    "unit": li.unit_of_measure,
+                    "qty": float(li.quantity),
+                    "rate": float(li.unit_rate),
+                    "gst": float(li.gst_percent),
+                }
+                for li in (po.line_items or [])
+            ]
+            docx_bytes = LOIService.generate_material_po_docx(po_data, line_items)
+        else:
+            articles = LOIService.resolve_articles(
+                po_type, getattr(po, "loi_articles", None), po_data
+            )
+            docx_bytes = LOIService.generate_docx(po_data, articles)
     except Exception as e:
         import traceback
         print("DOCX ERROR:", traceback.format_exc())
         raise HTTPException(500, f"DOCX generation failed: {e}")
 
-    filename = _sanitize_download_filename(filename, f"{po.po_number}_LOI.docx", ".docx")
+    default_name = f"{po.po_number}_PO.docx" if po_type == "material" else f"{po.po_number}_LOI.docx"
+    filename = _sanitize_download_filename(filename, default_name, ".docx")
     return Response(
         content=docx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

@@ -49,6 +49,7 @@ class POType(str, Enum):
     SERVICE     = "service"
     SUPPLY      = "supply"
     TECHNOLOGY  = "technology"
+    MATERIAL    = "material"
 
 
 class ApprovalAction(str, Enum):

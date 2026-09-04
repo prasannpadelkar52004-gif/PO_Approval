@@ -43,6 +43,12 @@ PO_TYPE_CLAUSES = {
         "warranty_terms":     "",
         "special_conditions": "",
     },
+    "material": {
+        "penalty_clauses":    "",
+        "delivery_terms":     "",
+        "warranty_terms":     "",
+        "special_conditions": "",
+    },
 }
 
 
@@ -52,15 +58,15 @@ class POService:
 
     @staticmethod
     async def generate_po_number(session: AsyncSession) -> str:
-        """Generates sequential PO numbers: PO-2026-0001"""
+        """Generates sequential PO numbers using MAX to handle deleted PO gaps."""
         year = datetime.utcnow().year
+        from sqlalchemy import text as _text
         result = await session.execute(
-            select(func.count(PurchaseOrder.id)).where(
-                func.extract("year", PurchaseOrder.created_at) == year
-            )
+            _text("SELECT MAX(CAST(SUBSTRING(po_number FROM 9) AS INTEGER)) FROM purchase_orders WHERE po_number LIKE :pat"),
+            {"pat": f"PO-{year}-%"}
         )
-        count = result.scalar_one() + 1
-        return f"PO-{year}-{count:04d}"
+        max_num = result.scalar_one_or_none() or 0
+        return f"PO-{year}-{max_num + 1:04d}"
 
     # ── Create PO ─────────────────────────────────────────────────────────────
 
