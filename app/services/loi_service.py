@@ -1656,12 +1656,26 @@ class LOIService:
         pdf.cell(30, 4, "Del. Details", border="LBR")
         pdf.cell(PW - 30, 4, "AS MENTIONED ABOVE", border="BR", ln=True)
 
-        pdf.cell(PW // 2, 10,
+        # Bottom two cells - use multi_cell side by side to avoid text overflow
+        half_pw = PW // 2
+        left_x = pdf.l_margin
+        right_x = pdf.l_margin + half_pw
+        row_y = pdf.get_y()
+
+        pdf.set_xy(left_x, row_y)
+        pdf.set_font("Helvetica", "", 7)
+        pdf.multi_cell(half_pw, 4,
             "PLEASE SIGN AND RETURN ACKNOWLEDGEMENT ORDER COPY\nAND CONFIRM DELIVERY BY RETURN\nStandard Terms and Conditions apply",
             border=1)
-        pdf.cell(PW // 2, 10,
+        left_end_y = pdf.get_y()
+
+        pdf.set_xy(right_x, row_y)
+        pdf.multi_cell(half_pw, 4,
             "COPY OF ULTIMATE MANUFACTURERS FACTORY ORDER\nACKNOWLEDGEMENT REQUIRED WITHIN 7 DAYS OF ORDER DATE",
-            border=1, ln=True)
+            border=1)
+        right_end_y = pdf.get_y()
+
+        pdf.set_xy(left_x, max(left_end_y, right_end_y))
 
         # ── PAGE 2: Distribution ─────────────────────────────────────────────
         pdf.add_page()
@@ -1728,15 +1742,17 @@ class LOIService:
 
         for clause in MATERIAL_SPECIAL_CONDITIONS:
             body = _safe_fill(clause["body"], variables)
+            pdf.set_x(pdf.l_margin)
             pdf.set_font("Helvetica", "B", 9)
             pdf.multi_cell(PW, 6, f"{clause['number']}.    {clause['title']}")
             pdf.set_font("Helvetica", "", 8)
             for line in body.split("\n"):
                 line = line.strip()
                 if line.startswith("-"):
-                    pdf.cell(8, 5, "")
+                    pdf.set_x(pdf.l_margin + 8)
                     pdf.multi_cell(PW - 8, 5, line)
                 elif line:
+                    pdf.set_x(pdf.l_margin)
                     pdf.multi_cell(PW, 5, line)
                 else:
                     pdf.ln(2)
@@ -1758,15 +1774,17 @@ class LOIService:
 
         for clause in MATERIAL_GENERAL_CONDITIONS:
             body = _safe_fill(clause["body"], variables)
+            pdf.set_x(pdf.l_margin)
             pdf.set_font("Helvetica", "B", 9)
             pdf.multi_cell(PW, 6, f"{clause['number']}.    {clause['title']}")
             pdf.set_font("Helvetica", "", 8)
             for line in body.split("\n"):
                 line = line.strip()
                 if line.startswith("-"):
-                    pdf.cell(8, 5, "")
+                    pdf.set_x(pdf.l_margin + 8)
                     pdf.multi_cell(PW - 8, 5, line)
                 elif line:
+                    pdf.set_x(pdf.l_margin)
                     pdf.multi_cell(PW, 5, line)
                 else:
                     pdf.ln(2)
