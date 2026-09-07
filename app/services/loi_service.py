@@ -280,7 +280,7 @@ SERVICE_ARTICLES = [
 ]
 SUPPLY_ARTICLES  = [a.copy() for a in TECHNOLOGY_ARTICLES]
 
-# ── Material PO – Annexure-II Special Conditions ──────────────────────────────
+# ── Material PO - Annexure-II Special Conditions ──────────────────────────────
 # These are stored as "articles" so the LOI editor UI works, but the download
 # uses generate_material_po_pdf / generate_material_po_docx which renders the
 # full PO document structure (PO header + Annexure-I items + Annexure-II + III).
@@ -337,13 +337,13 @@ MATERIAL_SPECIAL_CONDITIONS = [
             "10% payment will be released after commissioning and handing over or after maximum 180 days "
             "in case of delay in commissioning whichever is earlier. Pre-condition of such release will "
             "submission of PBG of equivalent amount valid till warrantee period:\n\n"
-            "  \u2022 Original invoice\n"
-            "  \u2022 Delivery Challan\n"
-            "  \u2022 Packing List\n"
-            "  \u2022 Original LF\n"
-            "  \u2022 Warranty certificate\n"
-            "  \u2022 Inspection report and Written Dispatch Clearance by PEEIPL.\n"
-            "  \u2022 Any other document, BUYER may reasonably ask for.\n\n"
+            "  - Original invoice\n"
+            "  - Delivery Challan\n"
+            "  - Packing List\n"
+            "  - Original LF\n"
+            "  - Warranty certificate\n"
+            "  - Inspection report and Written Dispatch Clearance by PEEIPL.\n"
+            "  - Any other document, BUYER may reasonably ask for.\n\n"
             "{delivery_terms}"
         ),
     },
@@ -384,7 +384,7 @@ MATERIAL_SPECIAL_CONDITIONS = [
     },
 ]
 
-# Annexure-III General Conditions (clauses 1–34 from the PO images)
+# Annexure-III General Conditions (clauses 1-34 from the PO images)
 MATERIAL_GENERAL_CONDITIONS = [
     {
         "number": "1",
@@ -465,7 +465,7 @@ MATERIAL_GENERAL_CONDITIONS = [
     },
     {
         "number": "6",
-        "title": "PACKING – LABELING - MARKING",
+        "title": "PACKING - LABELING - MARKING",
         "body": (
             "The Seller shall be responsible for packing the Supplies. The packing shall be suitable "
             "for the Supply delivered and the means of transport used to deliver the Supply. Furthermore, "
@@ -658,7 +658,7 @@ MATERIAL_GENERAL_CONDITIONS = [
         "number": "18",
         "title": "ASSIGNMENTS OF ORDER / SUB-CONTRACTORS",
         "body": (
-            "18.1 – Assignment and Change of Control\n\n"
+            "18.1 - Assignment and Change of Control\n\n"
             "The Seller shall not assign the Contract to any third party, in whole or in part, without "
             "the prior written consent of the Buyer. The Buyer shall be entitled to assign all or part "
             "of the Contract subject to prior written information regarding such assignment being sent "
@@ -830,20 +830,20 @@ MATERIAL_GENERAL_CONDITIONS = [
         "title": "DELAY",
         "body": (
             "In case of any of the following events:-\n\n"
-            "  \u2022 The Seller delays delivery of products and any associated service as stipulated in the Contract.\n"
-            "  \u2022 The Seller delivers goods partially thereby delay the buyer's schedule.\n"
-            "  \u2022 The Seller delivers goods not in accordance with the Purchase Order/supply agreement "
+            "  - The Seller delays delivery of products and any associated service as stipulated in the Contract.\n"
+            "  - The Seller delivers goods partially thereby delay the buyer's schedule.\n"
+            "  - The Seller delivers goods not in accordance with the Purchase Order/supply agreement "
             "causing delays to buyer Schedule of works.\n"
-            "  \u2022 The Seller delivers unapproved goods to site and delays replacement of the approved "
+            "  - The Seller delivers unapproved goods to site and delays replacement of the approved "
             "materials after receiving written instructions to do so causing delays to the buyer's "
             "schedule of works.\n\n"
             "In case, the seller performance is delayed due to any delay on client's side, the seller "
             "shall be given due extension of time without any cost implication. The seller shall "
             "intimate client regarding such delay in writing.\n\n"
             "The Seller is liable for the one or more of the following actions:-\n"
-            "  \u2022 The buyer is entitled to pursue the outstanding materials (not delivered portion) and/or "
+            "  - The buyer is entitled to pursue the outstanding materials (not delivered portion) and/or "
             "replacement of materials or not approved materials in any means possible including freight etc.\n"
-            "  \u2022 The buyer is entitled to seek replacement for any damages supplies (in transit or receipt)."
+            "  - The buyer is entitled to seek replacement for any damages supplies (in transit or receipt)."
         ),
     },
     {
@@ -1012,7 +1012,7 @@ def _safe_fill(text: str, variables: dict) -> str:
     try:
         return text.format_map(_SafeFormatDict(variables))
     except Exception:
-        # Unbalanced braces etc. — return the text as-is rather than failing
+        # Unbalanced braces etc. - return the text as-is rather than failing
         return text
 
 
@@ -1116,7 +1116,7 @@ class LOIService:
                     else None
                 )
                 if tpl is None and body is None:
-                    # Dangling template reference (e.g. template shrank) — skip
+                    # Dangling template reference (e.g. template shrank) - skip
                     continue
                 if tpl:
                     if body is None:
@@ -1486,14 +1486,17 @@ class LOIService:
     # matches the exact layout from the physical PO form.
 
     @staticmethod
+
+    @staticmethod
     def generate_material_po_pdf(po_data: dict[str, Any], line_items: list[dict]) -> bytes:
         """
-        Generate the full Material Purchase Order PDF:
-        Page 1  – PO header table (Order No, Vendor, amounts, T&C footer)
-        Page 2  – Distribution / Prepared-by footer
-        Page 3  – Annexure-I  (line items table)
-        Page 4+ – Annexure-II (Special Conditions, clauses 1-7)
-        Page N+ – Annexure-III (General Conditions, clauses 1-34)
+        Generate the full Material Purchase Order PDF matching the exact
+        layout from the physical PO form:
+        Page 1  - PO header table
+        Page 2  - Distribution / Prepared-by footer page
+        Page 3  - Annexure-I  (line items table)
+        Page 4+ - Annexure-II (Special Conditions, clauses 1-7)
+        Page N+ - Annexure-III (General Conditions, clauses 1-34)
         """
         try:
             from fpdf import FPDF
@@ -1503,35 +1506,37 @@ class LOIService:
         variables = LOIService._build_variables(po_data)
         total = float(po_data.get("total_amount", 0))
         total_words = _amount_to_words(total)
-        vendor_name = po_data.get("vendor_name", "[VENDOR NAME]")
-        po_number   = po_data.get("po_number", "DRAFT")
-        po_date     = po_data.get("required_by", "")
+        vendor_name   = po_data.get("vendor_name", "[VENDOR NAME]")
+        po_number     = po_data.get("po_number", "DRAFT")
+        po_date       = po_data.get("required_by", "")
         delivery_addr = po_data.get("delivery_address", "")
+        description   = po_data.get("description", "")
+
+        # A4 = 210mm wide. Margins L=15 R=15 → usable = 180mm
+        PW = 180  # usable page width
 
         class MatPDF(FPDF):
             def header(self):
-                # Right-hand logo area
-                self.set_font("Helvetica", "B", 13)
-                self.set_xy(120, 8)
-                self.cell(0, 6, "PASSAVANT", ln=True, align="R")
+                # Right: PASSAVANT logo text
+                self.set_font("Helvetica", "B", 14)
+                self.set_xy(110, 8)
+                self.cell(85, 7, "PASSAVANT", align="R", ln=True)
                 self.set_font("Helvetica", "", 9)
-                self.set_xy(120, 15)
-                self.cell(0, 4, "Energy & Environment", ln=True, align="R")
-                # Left header label
-                self.set_font("Helvetica", "", 9)
-                self.set_xy(10, 12)
-                self.cell(60, 5, "Purchase Order", align="C")
-                # QHSE / Date row
+                self.set_xy(110, 16)
+                self.cell(85, 5, "Energy & Environment", align="R", ln=True)
+                # Left: "Purchase Order" label
+                self.set_font("Helvetica", "", 10)
+                self.set_xy(15, 10)
+                self.cell(60, 6, "Purchase Order", align="C")
+                # QHSE Ref box
                 self.set_font("Helvetica", "", 8)
-                self.set_xy(120, 21)
-                self.cell(40, 4, "QHSE Ref. No.")
-                self.set_xy(160, 21)
-                self.cell(0, 4, "", border="B")
-                self.set_xy(120, 26)
-                self.cell(40, 4, "Date:")
-                self.set_xy(160, 26)
-                self.cell(0, 4, po_date)
-                self.ln(10)
+                self.set_xy(130, 22)
+                self.cell(25, 4, "QHSE Ref. No.", border=1)
+                self.cell(45, 4, "", border=1, ln=True)
+                self.set_xy(130, 26)
+                self.cell(25, 4, "Date:", border=1)
+                self.cell(45, 4, po_date, border=1, ln=True)
+                self.ln(4)
 
             def footer(self):
                 self.set_y(-15)
@@ -1546,146 +1551,134 @@ class LOIService:
         # ── PAGE 1: PO Header ────────────────────────────────────────────────
         pdf.add_page()
 
-        def cell_label(w, h, txt, border="LRB"):
-            pdf.set_font("Helvetica", "", 8)
-            pdf.cell(w, h, txt, border=border)
-
-        def cell_val(w, h, txt, border="LRB", bold=False):
-            pdf.set_font("Helvetica", "B" if bold else "", 8)
-            pdf.cell(w, h, txt, border=border)
-
         # Company banner
         pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 8, "PASSAVANT ENERGY & ENVIRONMENT INDIA PRIVATE LIMITED",
+        pdf.cell(PW, 8, "PASSAVANT ENERGY & ENVIRONMENT INDIA PRIVATE LIMITED",
                  border=1, ln=True, align="C")
 
-        # Order No / Date row
+        # Order No row
         pdf.set_font("Helvetica", "", 8)
-        pdf.cell(30, 6, "Order No.:", border="LRT")
-        pdf.cell(75, 6, po_number, border="RT")
-        pdf.cell(0, 6, "", border="LRT", ln=True)
-        pdf.cell(30, 6, "Date:", border="LRB")
-        pdf.cell(75, 6, po_date, border="RB")
-        pdf.cell(0, 6, "", border="LRB", ln=True)
+        pdf.cell(30, 5, "Order No.:", border="LTR")
+        pdf.cell(PW - 30, 5, po_number, border="TR", ln=True)
+        pdf.cell(30, 5, "Date:", border="LBR")
+        pdf.cell(PW - 30, 5, po_date, border="BR", ln=True)
 
         # Billing + Order To
-        pdf.cell(105, 5, "BILLING AND CONSIGNEE ADDRESS:", border="LRT")
-        pdf.cell(0, 5, "Order To:", border="LRT", ln=True)
-        pdf.cell(105, 10, delivery_addr[:60], border="LRB")
-        pdf.cell(0, 10, vendor_name[:60], border="LRB", ln=True)
+        half = PW // 2
+        pdf.cell(half, 5, "BILLING AND CONSIGNEE ADDRESS:", border="LTR")
+        pdf.cell(half, 5, "Order To:", border="TR", ln=True)
+        pdf.cell(half, 10, delivery_addr[:55], border="LBR")
+        pdf.cell(half, 10, vendor_name[:55], border="BR", ln=True)
 
-        # Delivery
-        pdf.cell(105, 5, "DELIVERY AND SHIP TO ADDRESS -", border="LRT")
-        pdf.cell(0, 5, "Offer:", border="LRT", ln=True)
-        pdf.cell(105, 10, delivery_addr[:60], border="LRB")
-        pdf.cell(0, 10, "", border="LRB", ln=True)
+        # Delivery + Offer
+        pdf.cell(half, 5, "DELIVERY AND SHIP TO ADDRESS -", border="LTR")
+        pdf.cell(half, 5, "Offer:", border="TR", ln=True)
+        pdf.cell(half, 10, delivery_addr[:55], border="LBR")
+        pdf.cell(half, 10, "", border="BR", ln=True)
 
         # Tel / Fax / Attn
-        pdf.cell(35, 5, "Tel:", border="LRTB")
-        pdf.cell(35, 5, "FAX:", border="RTB")
-        pdf.cell(35, 5, "", border="RTB")
-        pdf.cell(0, 5, "Attn:", border="LRTB", ln=True)
+        pdf.cell(30, 5, "Tel:", border="LTRB")
+        pdf.cell(30, 5, "FAX:", border="TRB")
+        pdf.cell(half - 60, 5, "", border="TRB")
+        pdf.cell(half, 5, "Attn:", border="LTRB", ln=True)
 
-        # Items header
-        cws = [14, 18, 68, 14, 14, 26, 26]
+        # Line items table header
+        c = [14, 18, 64, 14, 14, 28, 28]  # sum=180
         hdrs = ["JOB\nCAT", "ITEM\nCODE", "DESCRIPTION", "UNIT", "QTY",
                 "RATE\n(INR)", "AMOUNT\n(INR)"]
         pdf.set_font("Helvetica", "B", 7)
-        for i, (w, h) in enumerate(zip(cws, hdrs)):
+        for w, h in zip(c, hdrs):
             pdf.cell(w, 8, h, border=1, align="C")
         pdf.ln()
 
-        # Summary line item row
+        # Single summary row
         pdf.set_font("Helvetica", "", 8)
-        pdf.cell(cws[0], 6, "", border="LR")
-        pdf.cell(cws[1], 6, "", border="R")
-        desc_short = po_data.get("description", "")[:40]
-        pdf.cell(cws[2], 6, desc_short, border="R")
-        pdf.cell(cws[3], 6, "LOT", border="R", align="C")
-        pdf.cell(cws[4], 6, "1", border="R", align="C")
-        pdf.cell(cws[5], 6, f"{total:,.0f}", border="R", align="R")
-        pdf.cell(cws[6], 6, f"{total:,.0f}", border="R", align="R")
+        pdf.cell(c[0], 6, "", border="LR")
+        pdf.cell(c[1], 6, "", border="R")
+        pdf.cell(c[2], 6, description[:40], border="R")
+        pdf.cell(c[3], 6, "LOT", border="R", align="C")
+        pdf.cell(c[4], 6, "1", border="R", align="C")
+        pdf.cell(c[5], 6, f"{total:,.0f}", border="R", align="R")
+        pdf.cell(c[6], 6, f"{total:,.0f}", border="R", align="R")
         pdf.ln()
 
-        # T&C note inside item table
+        # T&C note row
         pdf.set_font("Helvetica", "", 7)
-        pdf.cell(cws[0], 4, "", border="L")
-        pdf.cell(cws[1], 4, "", border="")
-        pdf.multi_cell(cws[2], 4,
-            "TERMS & CONDITIONS:\nALL TERMS AND CONDITIONS SHALL BE APPLICABLE AS\nPER ANNEXURE-II & III.",
-            border="")
-        y_after = pdf.get_y()
+        pdf.cell(c[0] + c[1], 4, "", border="L")
+        note_x = pdf.get_x()
+        note_y = pdf.get_y()
+        pdf.multi_cell(c[2], 4,
+            "TERMS & CONDITIONS:\nALL TERMS AND CONDITIONS SHALL BE\nAPPLICABLE AS PER ANNEXURE-II & III.",
+            border=0)
+        tc_end_y = pdf.get_y()
+        # Right side cells aligned
+        pdf.set_xy(note_x + c[2], note_y)
+        pdf.cell(c[3], 4, "", border="")
+        pdf.cell(c[4], 4, "", border="")
+        pdf.cell(c[5], 4, "", border="")
+        pdf.cell(c[6], 4, "", border="R", ln=True)
 
-        # Blank filler rows
-        for _ in range(4):
-            for w in cws:
+        # Blank filler
+        for _ in range(3):
+            for w in c:
                 pdf.cell(w, 5, "", border="LR")
             pdf.ln()
-        pdf.cell(0, 0, "", border="T", ln=True)
+        pdf.cell(PW, 0, "", border="T", ln=True)
 
-        # Totals / signatories
-        half = sum(cws) / 2
-        pdf.set_font("Helvetica", "B", 8)
-        pdf.cell(half, 6, "PROJECT MANAGER", border="LRT")
-        pdf.cell(half - cws[-1] - cws[-2], 6, "FINANCE MANAGER", border="LRT")
-        pdf.cell(cws[-2], 6, "Total:", border="LRT", align="R")
-        pdf.cell(cws[-1], 6, f"{total:,.0f}", border="LRT", align="R")
-        pdf.ln()
-
-        pdf.cell(half, 6, "", border="LRB")
-        pdf.cell(half - cws[-1] - cws[-2], 6, "", border="LRB")
-        pdf.cell(cws[-2], 6, "Disc Amount", border="LRB", align="R")
-        pdf.cell(cws[-1], 6, "", border="LRB", align="R")
-        pdf.ln()
-
-        pdf.cell(half, 6, "PROCUREMENT\nMANAGER", border="LRT")
-        pdf.cell(half - cws[-1] - cws[-2], 6, "MANAGING DIRECTOR", border="LRT")
-        pdf.cell(cws[-2], 6, "Net Amount", border="LRT", align="R")
-        pdf.cell(cws[-1], 6, f"{total:,.0f}", border="LRT", align="R")
-        pdf.ln()
-        pdf.cell(half, 6, "", border="LRB")
-        pdf.cell(half - cws[-1] - cws[-2], 6, "", border="LRB")
-        pdf.cell(cws[-2], 6, "", border="LRB")
-        pdf.cell(cws[-1], 6, "", border="LRB")
-        pdf.ln()
+        # Signatories + totals
+        sig_w = (PW - c[5] - c[6]) // 2
+        pdf.set_font("Helvetica", "B", 7)
+        pdf.cell(sig_w, 5, "PROJECT MANAGER", border="LTR")
+        pdf.cell(sig_w, 5, "FINANCE MANAGER", border="TR")
+        pdf.cell(c[5], 5, "Total:", border="TR", align="R")
+        pdf.cell(c[6], 5, f"{total:,.0f}", border="TR", align="R", ln=True)
+        pdf.cell(sig_w, 5, "", border="LBR")
+        pdf.cell(sig_w, 5, "", border="BR")
+        pdf.cell(c[5], 5, "Disc Amount", border="BR", align="R")
+        pdf.cell(c[6], 5, "", border="BR", align="R", ln=True)
+        pdf.cell(sig_w, 5, "PROCUREMENT MANAGER", border="LTR")
+        pdf.cell(sig_w, 5, "MANAGING DIRECTOR", border="TR")
+        pdf.cell(c[5], 5, "Net Amount", border="TR", align="R")
+        pdf.cell(c[6], 5, f"{total:,.0f}", border="TR", align="R", ln=True)
+        pdf.cell(sig_w, 5, "", border="LBR")
+        pdf.cell(sig_w, 5, "", border="BR")
+        pdf.cell(c[5], 5, "", border="BR")
+        pdf.cell(c[6], 5, "", border="BR", ln=True)
 
         # Amount in words
-        words_line = f"INDIAN RUPEE {total_words.upper()}"
         pdf.set_font("Helvetica", "B", 8)
-        pdf.cell(0, 6, words_line, border=1, ln=True, align="C")
+        pdf.cell(PW, 6, f"INDIAN RUPEE {total_words.upper()}", border=1, ln=True, align="C")
 
-        # Payment/delivery footer
+        # Payment footer
         pdf.set_font("Helvetica", "", 7)
-        pdf.cell(35, 5, "Payment Terms", border="LRT")
-        pdf.cell(0, 5, "", border="LRT", ln=True)
-        pdf.cell(35, 5, "Del. Details", border="LRB")
-        pdf.cell(0, 5, "AS MENTIONED ABOVE", border="LRB", ln=True)
-        pdf.set_font("Helvetica", "", 7)
-        pdf.cell(105, 10,
-            "PLEASE SIGN AND RETURN ACKNOWLEDGEMENT ORDER COPY AND CONFIRM\n"
-            "DELIVERY BY RETURN\nStandard Terms and Conditions apply",
+        pdf.cell(30, 4, "Payment Terms", border="LTR")
+        pdf.cell(PW - 30, 4, "", border="TR", ln=True)
+        pdf.cell(30, 4, "Del. Details", border="LBR")
+        pdf.cell(PW - 30, 4, "AS MENTIONED ABOVE", border="BR", ln=True)
+
+        pdf.cell(PW // 2, 10,
+            "PLEASE SIGN AND RETURN ACKNOWLEDGEMENT ORDER COPY\nAND CONFIRM DELIVERY BY RETURN\nStandard Terms and Conditions apply",
             border=1)
-        pdf.cell(0, 10,
-            "COPY OF ULTIMATE MANUFACTURERS FACTORY\n"
-            "ORDER ACKNOWLEDGEMENT REQUIRED WITHIN\n7 DAYS OF ORDER DATE",
+        pdf.cell(PW // 2, 10,
+            "COPY OF ULTIMATE MANUFACTURERS FACTORY ORDER\nACKNOWLEDGEMENT REQUIRED WITHIN 7 DAYS OF ORDER DATE",
             border=1, ln=True)
 
-        # ── PAGE 2: Distribution / Prepared-by ──────────────────────────────
+        # ── PAGE 2: Distribution ─────────────────────────────────────────────
         pdf.add_page()
         pdf.set_font("Helvetica", "", 8)
-        pdf.cell(105, 10, "Distribution: Supplier, Office, Site, Store and File", border=1)
-        pdf.cell(0, 10, "Prepared by:", border=1, ln=True)
+        pdf.cell(PW // 2, 10, "Distribution: Supplier, Office, Site, Store and File", border=1)
+        pdf.cell(PW // 2, 10, "Prepared by:", border=1, ln=True)
 
-        # ── PAGE 3: Annexure-I Line Items ────────────────────────────────────
+        # ── PAGE 3: Annexure-I ───────────────────────────────────────────────
         pdf.add_page()
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 7, "Annexure-I", ln=True, align="C")
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(PW, 7, "Annexure-I", ln=True, align="C")
         pdf.ln(2)
 
-        col_ws = [14, 72, 18, 18, 28, 30]
-        col_hs = ["S. No.", "Item Description", "Unit", "Qty.", "Rate", "Amount"]
+        ac = [14, 70, 18, 18, 28, 32]  # sum=180
+        ah = ["S. No.", "Item Description", "Unit", "Qty.", "Rate (INR)", "Amount (INR)"]
         pdf.set_font("Helvetica", "B", 8)
-        for w, h in zip(col_ws, col_hs):
+        for w, h in zip(ac, ah):
             pdf.cell(w, 7, h, border=1, align="C")
         pdf.ln()
 
@@ -1696,96 +1689,99 @@ class LOIService:
             amt  = rate * qty
             subtotal += amt
             pdf.set_font("Helvetica", "", 8)
-            pdf.cell(col_ws[0], 10, str(i), border=1, align="C")
-            pdf.cell(col_ws[1], 10, str(item.get("description", ""))[:60], border=1)
-            pdf.cell(col_ws[2], 10, str(item.get("unit", "NOS")).upper(), border=1, align="C")
-            pdf.cell(col_ws[3], 10, str(int(qty)), border=1, align="C")
-            pdf.cell(col_ws[4], 10, f"{rate:,.0f}", border=1, align="R")
-            pdf.cell(col_ws[5], 10, f"{amt:,.0f}", border=1, align="R")
+            pdf.cell(ac[0], 10, str(i), border=1, align="C")
+            pdf.cell(ac[1], 10, str(item.get("description", ""))[:55], border=1)
+            pdf.cell(ac[2], 10, str(item.get("unit", "NOS")).upper(), border=1, align="C")
+            pdf.cell(ac[3], 10, str(int(qty)), border=1, align="C")
+            pdf.cell(ac[4], 10, f"{rate:,.0f}", border=1, align="R")
+            pdf.cell(ac[5], 10, f"{amt:,.0f}", border=1, align="R")
             pdf.ln()
 
-        # Sub-total / Freight / GST / Total rows
+        lw = sum(ac[:5])
         pdf.set_font("Helvetica", "B", 8)
-        label_w = sum(col_ws[:5])
-        pdf.cell(label_w, 6, "Sub-Total", border=1, align="R")
-        pdf.cell(col_ws[5], 6, f"{subtotal:,.0f}", border=1, align="R")
-        pdf.ln()
+        pdf.cell(lw, 6, "Sub-Total", border=1, align="R")
+        pdf.cell(ac[5], 6, f"{subtotal:,.0f}", border=1, align="R", ln=True)
         pdf.set_font("Helvetica", "", 8)
-        pdf.cell(label_w, 6, "Freight (Packing & forwarding) & Transit Insurance", border=1)
-        pdf.cell(col_ws[5], 6, "Incl", border=1, align="R")
-        pdf.ln()
-        pdf.cell(label_w, 6, "GST", border=1)
-        pdf.cell(col_ws[5], 6, "Extra", border=1, align="R")
-        pdf.ln()
+        pdf.cell(lw, 6, "Freight (Packing & forwarding) & Transit Insurance", border=1)
+        pdf.cell(ac[5], 6, "Incl", border=1, align="R", ln=True)
+        pdf.cell(lw, 6, "GST", border=1)
+        pdf.cell(ac[5], 6, "Extra", border=1, align="R", ln=True)
         pdf.set_font("Helvetica", "B", 8)
-        pdf.cell(label_w, 6, "Total Cost to Site", border=1, align="R")
-        pdf.cell(col_ws[5], 6, f"{subtotal:,.0f}", border=1, align="R")
-        pdf.ln()
+        pdf.cell(lw, 6, "Total Cost to Site", border=1, align="R")
+        pdf.cell(ac[5], 6, f"{subtotal:,.0f}", border=1, align="R", ln=True)
 
         # ── ANNEXURE-II: Special Conditions ─────────────────────────────────
         pdf.add_page()
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 7, "Annexure - II", ln=True, align="C")
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(PW, 7, "Annexure - II", ln=True, align="C")
         pdf.ln(1)
         pdf.set_font("Helvetica", "BU", 9)
-        pdf.cell(0, 6, "SPECIAL CONDITIONS: -", ln=True)
+        pdf.cell(PW, 6, "SPECIAL CONDITIONS: -", ln=True)
         pdf.ln(1)
         pdf.set_font("Helvetica", "B", 9)
-        pdf.cell(0, 5, "DEFINITIONS", ln=True)
+        pdf.cell(PW, 5, "DEFINITIONS", ln=True)
         pdf.set_font("Helvetica", "", 8)
-        pdf.cell(0, 5, "CLIENT:", ln=True)
-        pdf.cell(0, 5, "BUYER:", ln=True)
-        pdf.cell(0, 5, "SELLER/VENDOR:", ln=True)
+        pdf.cell(PW, 5, "CLIENT :", ln=True)
+        pdf.cell(PW, 5, "BUYER  :", ln=True)
+        pdf.cell(PW, 5, "SELLER/VENDOR:", ln=True)
         pdf.ln(3)
 
         for clause in MATERIAL_SPECIAL_CONDITIONS:
             body = _safe_fill(clause["body"], variables)
             pdf.set_font("Helvetica", "B", 9)
-            pdf.cell(0, 6, f"{clause['number']}.    {clause['title']}", ln=True)
+            pdf.multi_cell(PW, 6, f"{clause['number']}.    {clause['title']}")
             pdf.set_font("Helvetica", "", 8)
             for line in body.split("\n"):
-                if line.strip().startswith("\u2022"):
+                line = line.strip()
+                if line.startswith("-"):
                     pdf.cell(8, 5, "")
-                    pdf.multi_cell(0, 5, line.strip())
+                    pdf.multi_cell(PW - 8, 5, line)
+                elif line:
+                    pdf.multi_cell(PW, 5, line)
                 else:
-                    pdf.multi_cell(0, 5, line)
-            pdf.ln(2)
+                    pdf.ln(2)
+            pdf.ln(3)
 
-        pdf.set_font("Helvetica", "B", 8)
-        pdf.cell(0, 6, "For Passavant Energy & Environment India Private Limited.", ln=True)
-        pdf.ln(10)
-        pdf.cell(0, 5, "(Authorized Signatory)", ln=True)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(PW, 6, "For Passavant Energy & Environment India Private Limited.", ln=True)
+        pdf.ln(12)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.cell(PW, 5, "(Authorized Signatory)", ln=True)
 
         # ── ANNEXURE-III: General Conditions ────────────────────────────────
         pdf.add_page()
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 7, "ANNEXURE-III", ln=True, align="C")
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 6, "GENERAL CONDITIONS", ln=True, align="C")
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(PW, 7, "ANNEXURE-III", ln=True, align="C")
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(PW, 6, "GENERAL CONDITIONS", ln=True, align="C")
         pdf.ln(2)
 
         for clause in MATERIAL_GENERAL_CONDITIONS:
             body = _safe_fill(clause["body"], variables)
             pdf.set_font("Helvetica", "B", 9)
-            heading = f"{clause['number']}.    {clause['title']}"
-            pdf.multi_cell(0, 6, heading)
+            pdf.multi_cell(PW, 6, f"{clause['number']}.    {clause['title']}")
             pdf.set_font("Helvetica", "", 8)
             for line in body.split("\n"):
-                if line.strip().startswith("\u2022"):
+                line = line.strip()
+                if line.startswith("-"):
                     pdf.cell(8, 5, "")
-                    pdf.multi_cell(0, 5, line.strip())
+                    pdf.multi_cell(PW - 8, 5, line)
+                elif line:
+                    pdf.multi_cell(PW, 5, line)
                 else:
-                    pdf.multi_cell(0, 5, line)
+                    pdf.ln(2)
             pdf.ln(3)
 
-        pdf.set_font("Helvetica", "B", 8)
-        pdf.cell(0, 6, "For Passavant Energy & Environment India Private Limited.", ln=True)
-        pdf.ln(10)
-        pdf.cell(0, 5, "(Authorized Signatory)", ln=True)
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.cell(PW, 6, "For Passavant Energy & Environment India Private Limited.", ln=True)
+        pdf.ln(12)
+        pdf.set_font("Helvetica", "", 9)
+        pdf.cell(PW, 5, "(Authorized Signatory)", ln=True)
 
         buf = BytesIO()
         pdf.output(buf)
         return buf.getvalue()
+
 
     @staticmethod
     def generate_material_po_docx(po_data: dict[str, Any], line_items: list[dict]) -> bytes:
