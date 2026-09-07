@@ -203,6 +203,7 @@ class POService:
             project_id=data.project_id,
             vendor_id=data.vendor_id,
             po_category=data.po_category,
+            po_type=getattr(data, "po_type", None),
             sub_category=getattr(data, 'sub_category', None),
             site_id=_UUID(data.site_id) if getattr(data, 'site_id', None) else None,
             budget_category_id=budget_category_id,
